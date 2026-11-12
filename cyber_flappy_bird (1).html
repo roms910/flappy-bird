@@ -1,0 +1,2456 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CYBER FLAPPY // NEON OVERDRIVE</title>
+    <style>
+        /* Import font retro arcade & cyber UI */
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Press+Start+2P&display=swap');
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: 'Orbitron', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #game-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 100vw;
+            max-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle at center, #111633 0%, #04040a 100%);
+        }
+
+        canvas {
+            display: block;
+            box-shadow: 0 0 40px rgba(0, 243, 255, 0.25), 0 0 80px rgba(255, 0, 128, 0.15);
+            background-color: #090b1a;
+            cursor: pointer;
+        }
+
+        /* Subtle CRT Scanline overlay for authentic retro-cyber feel */
+        .crt-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.18) 50%
+            );
+            background-size: 100% 4px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-wrapper">
+        <canvas id="gameCanvas"></canvas>
+        <div class="crt-overlay"></div>
+    </div>
+
+<script>
+/**
+ * ============================================================================
+ * CYBER FLAPPY // NEON OVERDRIVE
+ * Single-File HTML5 Canvas Game Engine
+ * Features:
+ * - Authentic Flappy Bird Physics & Pixel-Art Vector Rendering
+ * - 3 Selectable Cyber Bird Skins with 3-frame wing animation & neon trails
+ * - Parallax Cyberpunk Skyline, Holograms, & Animated Circuit Floor
+ * - 4 Hidden Buffs (Shield, Chrono Slow, Nano Shrink, 2x Data)
+ * - 3 Hazards/Traps (EMP Laser Gate, Gravity Glitch Zone, Moving Cyber Pipes)
+ * - Interactive Multi-Gate Quiz System with Unique "System Terminated" Electrocution Death
+ * - Complete State Machine (Menu, Ready, Playing, Quiz Gate, Victory, Endless, GameOver)
+ * - Procedural Retro-Cyber Web Audio API Synthesizer (SFX + Dynamic BGM)
+ * ============================================================================
+ */
+
+(function() {
+    'use strict';
+
+    // =========================================================================
+    // 1. CANVAS & RESPONSIVE SCALING SETUP
+    // =========================================================================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Logical internal resolution (9:16 classic mobile/arcade aspect ratio, scales cleanly)
+    const LOGICAL_WIDTH = 450;
+    const LOGICAL_HEIGHT = 800;
+    let scaleRatio = 1;
+
+    function resizeCanvas() {
+        const windowW = window.innerWidth;
+        const windowH = window.innerHeight;
+        const targetAspect = LOGICAL_WIDTH / LOGICAL_HEIGHT;
+        const windowAspect = windowW / windowH;
+
+        let finalW, finalH;
+        if (windowAspect < targetAspect) {
+            finalW = windowW;
+            finalH = windowW / targetAspect;
+        } else {
+            finalH = windowH;
+            finalW = windowH * targetAspect;
+        }
+
+        // Support high-DPI screens cleanly
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.style.width = `${finalW}px`;
+        canvas.style.height = `${finalH}px`;
+        canvas.width = LOGICAL_WIDTH * dpr;
+        canvas.height = LOGICAL_HEIGHT * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        scaleRatio = finalW / LOGICAL_WIDTH;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // =========================================================================
+    // 2. PROCEDURAL WEB AUDIO API SOUND & SYNTH BGM ENGINE
+    // =========================================================================
+    class CyberAudioEngine {
+        constructor() {
+            this.ctx = null;
+            this.enabled = true;
+            this.bgmInterval = null;
+            this.bgmStep = 0;
+            this.isPlayingBgm = false;
+        }
+
+        init() {
+            if (!this.ctx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (AudioCtx) {
+                    this.ctx = new AudioCtx();
+                }
+            }
+            if (this.ctx && this.ctx.state === 'suspended') {
+                this.ctx.resume();
+            }
+        }
+
+        toggle() {
+            this.enabled = !this.enabled;
+            if (!this.enabled) {
+                this.stopBgm();
+            } else if (gameState === 'PLAYING' || gameState === 'READY') {
+                this.startBgm();
+            }
+            return this.enabled;
+        }
+
+        playTone(freq, type, duration, vol = 0.15, slideFreq = null, delay = 0) {
+            if (!this.enabled) return;
+            this.init();
+            if (!this.ctx) return;
+
+            const now = this.ctx.currentTime + delay;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, now);
+            if (slideFreq) {
+                osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideFreq), now + duration);
+            }
+
+            gain.gain.setValueAtTime(vol, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+
+            osc.start(now);
+            osc.stop(now + duration);
+        }
+
+        playNoise(duration, vol = 0.2, filterFreq = 1000) {
+            if (!this.enabled) return;
+            this.init();
+            if (!this.ctx) return;
+
+            const bufferSize = this.ctx.sampleRate * duration;
+            const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+
+            const noise = this.ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = filterFreq;
+
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.ctx.destination);
+
+            noise.start();
+        }
+
+        // Authentic retro-cyber SFX
+        sfxFlap() {
+            this.playTone(260, 'square', 0.09, 0.12, 540);
+            this.playTone(390, 'triangle', 0.08, 0.08, 680);
+        }
+
+        sfxScore() {
+            this.playTone(987.77, 'square', 0.08, 0.12, null, 0);     // B5
+            this.playTone(1318.51, 'square', 0.18, 0.12, null, 0.07); // E6
+        }
+
+        sfxBuff() {
+            const notes = [523.25, 659.25, 783.99, 1046.50];
+            notes.forEach((n, i) => {
+                this.playTone(n, 'sine', 0.12, 0.15, n * 1.1, i * 0.05);
+            });
+        }
+
+        sfxShieldBreak() {
+            this.playNoise(0.25, 0.25, 800);
+            this.playTone(600, 'sawtooth', 0.25, 0.18, 120);
+        }
+
+        sfxTrap() {
+            this.playTone(180, 'sawtooth', 0.2, 0.16, 90);
+            this.playTone(140, 'square', 0.2, 0.14, 70, 0.05);
+        }
+
+        sfxQuizWarning() {
+            this.playTone(440, 'sawtooth', 0.12, 0.14, 880, 0);
+            this.playTone(440, 'sawtooth', 0.12, 0.14, 880, 0.18);
+        }
+
+        sfxQuizCorrect() {
+            const notes = [587.33, 739.99, 880, 1174.66];
+            notes.forEach((n, i) => {
+                this.playTone(n, 'triangle', 0.18, 0.18, null, i * 0.07);
+            });
+        }
+
+        sfxQuizWrongElectrocute() {
+            // Dramatic electric shock & system shutdown sound
+            this.playNoise(0.65, 0.35, 1800);
+            this.playTone(150, 'sawtooth', 0.6, 0.25, 45);
+            this.playTone(920, 'square', 0.12, 0.15, 120, 0.05);
+            this.playTone(760, 'square', 0.12, 0.15, 95, 0.18);
+            this.playTone(540, 'sawtooth', 0.35, 0.2, 40, 0.32);
+        }
+
+        sfxCrash() {
+            this.playNoise(0.3, 0.3, 400);
+            this.playTone(160, 'sawtooth', 0.28, 0.22, 42);
+        }
+
+        sfxVictory() {
+            const fanfare = [523.25, 659.25, 783.99, 1046.50, 783.99, 1046.50];
+            const times = [0, 0.12, 0.24, 0.36, 0.52, 0.66];
+            fanfare.forEach((n, i) => {
+                this.playTone(n, 'square', 0.22, 0.15, null, times[i]);
+            });
+        }
+
+        sfxClick() {
+            this.playTone(800, 'sine', 0.06, 0.12, 1200);
+        }
+
+        startBgm() {
+            if (!this.enabled || this.isPlayingBgm) return;
+            this.init();
+            this.isPlayingBgm = true;
+            this.bgmStep = 0;
+
+            // Synthwave bassline loop
+            const bassNotes = [110, 110, 130.81, 146.83, 110, 110, 164.81, 146.83];
+            this.bgmInterval = setInterval(() => {
+                if (!this.enabled || (gameState !== 'PLAYING' && gameState !== 'READY')) return;
+                const freq = bassNotes[this.bgmStep % bassNotes.length];
+                // Subtle low synth pulse
+                this.playTone(freq, 'triangle', 0.18, 0.045, freq * 0.98);
+                if (this.bgmStep % 4 === 0) {
+                    this.playTone(freq * 2, 'sine', 0.08, 0.025);
+                }
+                this.bgmStep++;
+            }, 240);
+        }
+
+        stopBgm() {
+            this.isPlayingBgm = false;
+            if (this.bgmInterval) {
+                clearInterval(this.bgmInterval);
+                this.bgmInterval = null;
+            }
+        }
+    }
+
+    const audio = new CyberAudioEngine();
+
+    // =========================================================================
+    // 3. GAME CONSTANTS, STAGE THEMES, SKINS & QUIZ DATABASE
+    // =========================================================================
+    const GRAVITY = 0.44;
+    const FLAP_STRENGTH = -7.6;
+    const BASE_SCROLL_SPEED = 3.1;
+    const FLOOR_HEIGHT = 110;
+    const PLAYABLE_HEIGHT = LOGICAL_HEIGHT - FLOOR_HEIGHT;
+    const PIPE_WIDTH = 72;
+    const PIPE_GAP_DEFAULT = 152;
+    const WIN_STAGE_TARGET = 5; // Complete Stage 5 (Score >= 50) to trigger Victory!
+
+    // Bird Skin Configurations
+    const BIRD_SKINS = [
+        {
+            id: 'classic',
+            name: 'CYBER YELLOW',
+            bodyMain: '#FFD60A',
+            bodyShade: '#E09F00',
+            bodyHighlight: '#FFF3B0',
+            wingColor: '#FFF8D6',
+            beakTop: '#FF7B00',
+            beakBottom: '#D00000',
+            visorColor: '#00F5D4',
+            trailColor: 'rgba(255, 214, 10, 0.65)'
+        },
+        {
+            id: 'cyan',
+            name: 'NEON CYAN',
+            bodyMain: '#00F5D4',
+            bodyShade: '#0096C7',
+            bodyHighlight: '#CAF0F8',
+            wingColor: '#E0FBFC',
+            beakTop: '#FF007F',
+            beakBottom: '#9D0208',
+            visorColor: '#FFEE32',
+            trailColor: 'rgba(0, 245, 212, 0.65)'
+        },
+        {
+            id: 'crimson',
+            name: 'CRIMSON GLITCH',
+            bodyMain: '#FF2A6D',
+            bodyShade: '#9B0036',
+            bodyHighlight: '#FF8FA3',
+            wingColor: '#FFD6E0',
+            beakTop: '#05D9E8',
+            beakBottom: '#005F73',
+            visorColor: '#39FF14',
+            trailColor: 'rgba(255, 42, 109, 0.65)'
+        }
+    ];
+
+    // Stage Palettes (Changes dynamically as player advances stages)
+    const STAGE_THEMES = [
+        {
+            stage: 1,
+            name: 'SECTOR 01 // NEON DUSK',
+            skyTop: '#090A1F',
+            skyBottom: '#1B1448',
+            cityFar: '#14193B',
+            cityNear: '#1E2554',
+            accentNeon: '#00F5D4',
+            pipeBody: '#1B263B',
+            pipeLight: '#415A77',
+            pipeDark: '#0D1B2A',
+            pipeNeon: '#00F5D4'
+        },
+        {
+            stage: 2,
+            name: 'SECTOR 02 // SYNTHWAVE',
+            skyTop: '#1A0626',
+            skyBottom: '#4A0E4E',
+            cityFar: '#2A0B3B',
+            cityNear: '#3D1254',
+            accentNeon: '#FF2A6D',
+            pipeBody: '#2D142C',
+            pipeLight: '#510A32',
+            pipeDark: '#190919',
+            pipeNeon: '#FF2A6D'
+        },
+        {
+            stage: 3,
+            name: 'SECTOR 03 // MATRIX CORE',
+            skyTop: '#03170E',
+            skyBottom: '#0B3B24',
+            cityFar: '#072617',
+            cityNear: '#0E4229',
+            accentNeon: '#39FF14',
+            pipeBody: '#132A13',
+            pipeLight: '#31572C',
+            pipeDark: '#081C08',
+            pipeNeon: '#39FF14'
+        },
+        {
+            stage: 4,
+            name: 'SECTOR 04 // SOLAR OVERLOAD',
+            skyTop: '#1F0C04',
+            skyBottom: '#592209',
+            cityFar: '#331407',
+            cityNear: '#4D1E0B',
+            accentNeon: '#FF9E00',
+            pipeBody: '#2B1B17',
+            pipeLight: '#5C3A21',
+            pipeDark: '#170D0A',
+            pipeNeon: '#FF9E00'
+        },
+        {
+            stage: 5,
+            name: 'SECTOR 05 // OMEGA MAINFRAME',
+            skyTop: '#0B0424',
+            skyBottom: '#2B0959',
+            cityFar: '#16093D',
+            cityNear: '#240E5E',
+            accentNeon: '#FFE600',
+            pipeBody: '#1F1A38',
+            pipeLight: '#463B7A',
+            pipeDark: '#100D21',
+            pipeNeon: '#FFE600'
+        }
+    ];
+
+    // Quiz Bank (Math, Computer/Cyber Logic, General Brain Teasers)
+    const QUIZ_BANK = [
+        { q: "12 + 19 = ?", options: ["29", "31", "33"], answer: 1 },
+        { q: "1 BYTE = ... BIT?", options: ["4", "8", "16"], answer: 1 },
+        { q: "BINARY DARI 5?", options: ["101", "110", "011"], answer: 0 },
+        { q: "15 x 4 = ?", options: ["45", "50", "60"], answer: 2 },
+        { q: "PORT DEFAULT HTTP?", options: ["21", "80", "443"], answer: 1 },
+        { q: "AKAR DARI 144?", options: ["11", "12", "14"], answer: 1 },
+        { q: "CPU ADALAH OTAK...", options: ["JARINGAN", "KOMPUTER", "MONITOR"], answer: 1 },
+        { q: "2 PANGKAT 6 = ?", options: ["32", "64", "128"], answer: 1 },
+        { q: "100 - 37 = ?", options: ["63", "73", "67"], answer: 0 },
+        { q: "WARNA RGB: R + G = ?", options: ["CYAN", "MAGENTA", "KUNING"], answer: 2 },
+        { q: "7 x 8 - 6 = ?", options: ["50", "56", "48"], answer: 0 },
+        { q: "RAM BERSIFAT...", options: ["PERMANEN", "VOLATILE", "OPTIK"], answer: 1 },
+        { q: "99 / 3 + 7 = ?", options: ["33", "40", "37"], answer: 1 },
+        { q: "HEXA 'F' = DESIMAL?", options: ["15", "16", "10"], answer: 0 },
+        { q: "3, 6, 12, 24, ...?", options: ["36", "48", "30"], answer: 1 }
+    ];
+
+    // =========================================================================
+    // 4. GAME STATE VARIABLES
+    // =========================================================================
+    let gameState = 'MENU'; // MENU, READY, PLAYING, DYING_NORMAL, DYING_QUIZ, GAMEOVER, VICTORY
+    let selectedSkinIndex = 0;
+    let score = 0;
+    let highScore = parseInt(localStorage.getItem('cyberFlappyHighScore') || '0', 10);
+    let isNewHighScore = false;
+    let currentStage = 1;
+    let endlessMode = false;
+    let frameCount = 0;
+    let scorePopScale = 1;
+
+    // Camera Shake & Flash Effects
+    let shakeTimer = 0;
+    let shakeIntensity = 0;
+    let screenFlashAlpha = 0;
+    let screenFlashColor = '#FFFFFF';
+    let stageBannerTimer = 0;
+    let stageBannerText = '';
+
+    // Active Buffs & Traps Timers (in frames, 60fps)
+    const activeEffects = {
+        shield: false,
+        slowMo: 0,
+        shrink: 0,
+        doubleScore: 0,
+        gravityInvert: 0
+    };
+
+    // Bird Object
+    const bird = {
+        x: 115,
+        y: PLAYABLE_HEIGHT / 2,
+        vy: 0,
+        radius: 17,
+        rotation: 0,
+        wingFrame: 0,
+        wingTimer: 0,
+        trail: [],
+        deadSpin: 0,
+        electrocutedTimer: 0,
+        charred: false
+    };
+
+    // World Entities
+    let pipes = [];
+    let collectibles = []; // Buffs & Trap Zones
+    let quizGates = [];    // Multi-gap Quiz Barriers
+    let particles = [];
+    let floatingTexts = [];
+    let fireworks = [];
+    let activeQuiz = null;
+    let quizWarningTimer = 0;
+    let nextQuizScoreThreshold = 8; // First quiz triggers after 8 points, then every ~10 points
+    let deathReason = 'NORMAL'; // 'NORMAL' or 'QUIZ_WRONG'
+    let floorOffset = 0;
+
+    // Parallax Skyline Data
+    const farBuildings = [];
+    const nearBuildings = [];
+    const holoSigns = [];
+
+    function initCityscape() {
+        farBuildings.length = 0;
+        nearBuildings.length = 0;
+        holoSigns.length = 0;
+
+        let x = 0;
+        while (x < LOGICAL_WIDTH + 200) {
+            const w = 45 + Math.random() * 45;
+            const h = 160 + Math.random() * 220;
+            farBuildings.push({ x, w, h, antenna: Math.random() > 0.5 });
+            x += w - 5;
+        }
+
+        x = 0;
+        while (x < LOGICAL_WIDTH + 200) {
+            const w = 55 + Math.random() * 55;
+            const h = 110 + Math.random() * 170;
+            const winRows = Math.floor(h / 18);
+            const winCols = Math.floor(w / 14);
+            const litWindows = [];
+            for (let r = 0; r < winRows; r++) {
+                for (let c = 0; c < winCols; c++) {
+                    if (Math.random() > 0.55) {
+                        litWindows.push({ r, c, blink: Math.random() > 0.85 });
+                    }
+                }
+            }
+            nearBuildings.push({ x, w, h, litWindows });
+            if (Math.random() > 0.65) {
+                holoSigns.push({
+                    x: x + w / 2,
+                    y: PLAYABLE_HEIGHT - h - 25,
+                    text: ['CYBER', 'NEON', '2099', 'DATA', 'AI', 'FLY'][Math.floor(Math.random() * 6)],
+                    color: Math.random() > 0.5 ? '#00F5D4' : '#FF2A6D'
+                });
+            }
+            x += w + 8;
+        }
+    }
+    initCityscape();
+
+    // UI Button Hitboxes (Calculated dynamically during draw)
+    const uiButtons = {
+        startBtn: { x: 0, y: 0, w: 0, h: 0 },
+        audioBtn: { x: 0, y: 0, w: 0, h: 0 },
+        skinBtns: [],
+        restartBtn: { x: 0, y: 0, w: 0, h: 0 },
+        menuBtn: { x: 0, y: 0, w: 0, h: 0 },
+        endlessBtn: { x: 0, y: 0, w: 0, h: 0 }
+    };
+
+    // =========================================================================
+    // 5. CORE GAMEPLAY FUNCTIONS
+    // =========================================================================
+    function resetGameToReady() {
+        score = 0;
+        isNewHighScore = false;
+        currentStage = 1;
+        endlessMode = false;
+        nextQuizScoreThreshold = 8;
+        quizWarningTimer = 0;
+        activeQuiz = null;
+        deathReason = 'NORMAL';
+
+        activeEffects.shield = false;
+        activeEffects.slowMo = 0;
+        activeEffects.shrink = 0;
+        activeEffects.doubleScore = 0;
+        activeEffects.gravityInvert = 0;
+
+        bird.x = 115;
+        bird.y = PLAYABLE_HEIGHT * 0.46;
+        bird.vy = 0;
+        bird.rotation = 0;
+        bird.trail = [];
+        bird.deadSpin = 0;
+        bird.electrocutedTimer = 0;
+        bird.charred = false;
+
+        pipes = [];
+        collectibles = [];
+        quizGates = [];
+        particles = [];
+        floatingTexts = [];
+        fireworks = [];
+
+        gameState = 'READY';
+        audio.startBgm();
+    }
+
+    function startActualPlay() {
+        gameState = 'PLAYING';
+        stageBannerText = STAGE_THEMES[0].name;
+        stageBannerTimer = 140;
+        flapBird();
+    }
+
+    function flapBird() {
+        if (gameState === 'READY') {
+            startActualPlay();
+            return;
+        }
+        if (gameState !== 'PLAYING') return;
+
+        // If gravity is inverted by anomaly trap, flap pushes downwards!
+        const dir = activeEffects.gravityInvert > 0 ? -1 : 1;
+        bird.vy = FLAP_STRENGTH * dir;
+        bird.wingFrame = 1;
+        bird.wingTimer = 0;
+        audio.sfxFlap();
+
+        // Spawn wing thrust particles
+        const skin = BIRD_SKINS[selectedSkinIndex];
+        for (let i = 0; i < 6; i++) {
+            particles.push({
+                x: bird.x - 12,
+                y: bird.y + 4,
+                vx: -2 - Math.random() * 2.5,
+                vy: (Math.random() - 0.5) * 3,
+                size: 3 + Math.random() * 3,
+                color: skin.visorColor,
+                alpha: 1,
+                decay: 0.045
+            });
+        }
+    }
+
+    function addScore(points, popupX = bird.x, popupY = bird.y - 25) {
+        const multiplier = activeEffects.doubleScore > 0 ? 2 : 1;
+        const totalAdded = points * multiplier;
+        score += totalAdded;
+        scorePopScale = 1.45;
+        audio.sfxScore();
+
+        floatingTexts.push({
+            x: popupX,
+            y: popupY,
+            text: multiplier > 1 ? `+${totalAdded} (2X!)` : `+${totalAdded}`,
+            color: multiplier > 1 ? '#FFE600' : '#00F5D4',
+            alpha: 1,
+            vy: -1.6
+        });
+
+        if (score > highScore) {
+            highScore = score;
+            isNewHighScore = true;
+            localStorage.setItem('cyberFlappyHighScore', highScore.toString());
+        }
+
+        // Check Stage Progression (Every 10 points = new stage)
+        const calculatedStage = Math.floor(score / 10) + 1;
+        if (calculatedStage > currentStage) {
+            currentStage = calculatedStage;
+            if (!endlessMode && currentStage > WIN_STAGE_TARGET) {
+                triggerVictory();
+                return;
+            }
+            const theme = getTheme();
+            stageBannerText = endlessMode
+                ? `ENDLESS OVERDRIVE // LVL ${currentStage}`
+                : theme.name;
+            stageBannerTimer = 150;
+            screenFlashColor = theme.accentNeon;
+            screenFlashAlpha = 0.25;
+        }
+    }
+
+    function getTheme() {
+        const idx = (currentStage - 1) % STAGE_THEMES.length;
+        return STAGE_THEMES[idx];
+    }
+
+    function triggerScreenShake(intensity = 10, duration = 18) {
+        shakeIntensity = intensity;
+        shakeTimer = duration;
+    }
+
+    function triggerNormalDeath() {
+        if (gameState === 'DYING_NORMAL' || gameState === 'DYING_QUIZ' || gameState === 'GAMEOVER') return;
+        deathReason = 'NORMAL';
+        gameState = 'DYING_NORMAL';
+        audio.stopBgm();
+        audio.sfxCrash();
+        triggerScreenShake(12, 22);
+        screenFlashColor = '#FFFFFF';
+        screenFlashAlpha = 0.75;
+        bird.vy = -6.5;
+
+        // Explosion sparks
+        for (let i = 0; i < 28; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 2 + Math.random() * 6;
+            particles.push({
+                x: bird.x,
+                y: bird.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                size: 3 + Math.random() * 4,
+                color: i % 2 === 0 ? '#FF2A6D' : '#FFD60A',
+                alpha: 1,
+                decay: 0.025
+            });
+        }
+    }
+
+    function triggerQuizWrongDeath() {
+        if (gameState === 'DYING_QUIZ' || gameState === 'GAMEOVER') return;
+        deathReason = 'QUIZ_WRONG';
+        gameState = 'DYING_QUIZ';
+        audio.stopBgm();
+        audio.sfxQuizWrongElectrocute();
+        triggerScreenShake(18, 45);
+        screenFlashColor = '#FF003C';
+        screenFlashAlpha = 0.85;
+        bird.electrocutedTimer = 55; // Hold in air while being shocked by red lasers!
+        bird.charred = true;
+        bird.vy = 0;
+
+        // High-voltage red/cyan electric arc particles
+        for (let i = 0; i < 45; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 1.5 + Math.random() * 7;
+            particles.push({
+                x: bird.x,
+                y: bird.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                size: 2 + Math.random() * 4,
+                color: i % 3 === 0 ? '#FF003C' : (i % 3 === 1 ? '#FFFFFF' : '#00F5D4'),
+                alpha: 1,
+                decay: 0.02
+            });
+        }
+    }
+
+    function triggerVictory() {
+        gameState = 'VICTORY';
+        audio.stopBgm();
+        audio.sfxVictory();
+        screenFlashColor = '#FFE600';
+        screenFlashAlpha = 0.6;
+        // Spawn celebratory cyber fireworks
+        for (let i = 0; i < 6; i++) {
+            spawnFirework(80 + Math.random() * (LOGICAL_WIDTH - 160), 120 + Math.random() * 260);
+        }
+    }
+
+    function spawnFirework(x, y) {
+        const colors = ['#00F5D4', '#FF2A6D', '#FFE600', '#39FF14', '#9D4EDD'];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        for (let i = 0; i < 36; i++) {
+            const angle = (Math.PI * 2 * i) / 36;
+            const speed = 1.5 + Math.random() * 4.5;
+            fireworks.push({
+                x, y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                color,
+                alpha: 1,
+                size: 2.5 + Math.random() * 2
+            });
+        }
+    }
+
+    // =========================================================================
+    // 6. SPAWNING PIPES, BUFFS, TRAPS & QUIZ GATES
+    // =========================================================================
+    function spawnObstacleWave() {
+        // Check if it's time to spawn an Interactive Quiz Gate!
+        if (score >= nextQuizScoreThreshold && quizGates.length === 0 && quizWarningTimer === 0) {
+            quizWarningTimer = 95; // ~1.5 seconds warning before gate arrives
+            activeQuiz = QUIZ_BANK[Math.floor(Math.random() * QUIZ_BANK.length)];
+            audio.sfxQuizWarning();
+            return;
+        }
+
+        // Do not spawn regular pipes while a quiz gate is approaching or active
+        if (quizWarningTimer > 0 || quizGates.length > 0) return;
+
+        // Calculate dynamic difficulty based on stage
+        const gapSize = Math.max(126, PIPE_GAP_DEFAULT - (currentStage - 1) * 5);
+        const minTop = 75;
+        const maxTop = PLAYABLE_HEIGHT - gapSize - 75;
+        const gapTop = minTop + Math.random() * (maxTop - minTop);
+
+        // Moving pipes appear from Stage 2+
+        const isMoving = currentStage >= 2 && Math.random() < Math.min(0.55, 0.18 * currentStage);
+        // EMP Laser Gate trap appears between pipe lips occasionally
+        const hasLaserTrap = currentStage >= 2 && !isMoving && Math.random() < 0.24;
+
+        const newPipe = {
+            x: LOGICAL_WIDTH + 30,
+            gapTop: gapTop,
+            gapHeight: gapSize,
+            passed: false,
+            isMoving: isMoving,
+            moveDir: Math.random() > 0.5 ? 1 : -1,
+            moveSpeed: 0.9 + Math.min(1.2, currentStage * 0.18),
+            hasLaserTrap: hasLaserTrap,
+            laserTimer: Math.floor(Math.random() * 120) // Cycles on/off
+        };
+        pipes.push(newPipe);
+
+        // Chance to spawn a Hidden Buff inside the pipe gap or slightly past it
+        if (Math.random() < 0.32) {
+            const buffTypes = ['SHIELD', 'SLOWMO', 'SHRINK', 'DOUBLE'];
+            const type = buffTypes[Math.floor(Math.random() * buffTypes.length)];
+            collectibles.push({
+                kind: 'BUFF',
+                type: type,
+                x: newPipe.x + PIPE_WIDTH / 2,
+                y: gapTop + gapSize / 2 + (Math.random() - 0.5) * 35,
+                radius: 15,
+                collected: false,
+                bobOffset: Math.random() * Math.PI * 2
+            });
+        }
+        // Or spawn a Gravity Glitch Anomaly Zone between pipes
+        else if (currentStage >= 2 && Math.random() < 0.22) {
+            collectibles.push({
+                kind: 'TRAP_GRAVITY',
+                type: 'GRAVITY_INVERT',
+                x: newPipe.x + PIPE_WIDTH + 95,
+                y: 140 + Math.random() * (PLAYABLE_HEIGHT - 280),
+                radius: 26,
+                collected: false,
+                bobOffset: 0
+            });
+        }
+    }
+
+    function spawnQuizGate() {
+        if (!activeQuiz) return;
+        // 3 Vertical Answer Slots (A, B, C) spanning the playable height
+        const slotCount = 3;
+        const barrierHeight = 26;
+        const usableHeight = PLAYABLE_HEIGHT - barrierHeight * (slotCount + 1);
+        const slotHeight = usableHeight / slotCount;
+
+        const slots = [];
+        for (let i = 0; i < slotCount; i++) {
+            const topY = barrierHeight + i * (slotHeight + barrierHeight);
+            slots.push({
+                index: i,
+                label: ['A', 'B', 'C'][i],
+                text: activeQuiz.options[i],
+                topY: topY,
+                bottomY: topY + slotHeight,
+                isCorrect: i === activeQuiz.answer
+            });
+        }
+
+        quizGates.push({
+            x: LOGICAL_WIDTH + 40,
+            width: 68,
+            barrierHeight: barrierHeight,
+            slots: slots,
+            resolved: false
+        });
+    }
+
+    // =========================================================================
+    // 7. UPDATE LOGIC (PHYSICS, COLLISIONS, TIMERS)
+    // =========================================================================
+    function update() {
+        frameCount++;
+
+        // Decay screen flash & shake
+        if (screenFlashAlpha > 0) screenFlashAlpha = Math.max(0, screenFlashAlpha - 0.035);
+        if (shakeTimer > 0) shakeTimer--;
+        if (stageBannerTimer > 0) stageBannerTimer--;
+        if (scorePopScale > 1) scorePopScale = Math.max(1, scorePopScale - 0.04);
+
+        // Update particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.alpha -= p.decay;
+            if (p.alpha <= 0) particles.splice(i, 1);
+        }
+
+        // Update floating score/buff texts
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+            const ft = floatingTexts[i];
+            ft.y += ft.vy;
+            ft.alpha -= 0.022;
+            if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+        }
+
+        // Update fireworks in Victory state
+        if (gameState === 'VICTORY') {
+            if (frameCount % 38 === 0) {
+                spawnFirework(60 + Math.random() * (LOGICAL_WIDTH - 120), 90 + Math.random() * 280);
+            }
+            for (let i = fireworks.length - 1; i >= 0; i--) {
+                const fw = fireworks[i];
+                fw.x += fw.vx;
+                fw.y += fw.vy;
+                fw.vy += 0.06;
+                fw.alpha -= 0.018;
+                if (fw.alpha <= 0) fireworks.splice(i, 1);
+            }
+            // Bird hovers victoriously
+            bird.y = PLAYABLE_HEIGHT * 0.42 + Math.sin(frameCount * 0.08) * 12;
+            bird.rotation = Math.sin(frameCount * 0.08) * 0.1;
+            animateBirdWings(0.18);
+            scrollBackground(1.8);
+            return;
+        }
+
+        // Menu or Ready Idle Hover Animation
+        if (gameState === 'MENU' || gameState === 'READY') {
+            scrollBackground(BASE_SCROLL_SPEED * 0.75);
+            bird.y = PLAYABLE_HEIGHT * 0.46 + Math.sin(frameCount * 0.09) * 9;
+            bird.rotation = 0;
+            animateBirdWings(0.16);
+            updateBirdTrail();
+            return;
+        }
+
+        // Electrocution Death Animation (Wrong Quiz Answer)
+        if (gameState === 'DYING_QUIZ') {
+            if (bird.electrocutedTimer > 0) {
+                bird.electrocutedTimer--;
+                // Jitter violently in mid-air while lasers zap the bird
+                bird.x = 115 + (Math.random() - 0.5) * 12;
+                bird.y += (Math.random() - 0.5) * 10;
+                if (frameCount % 3 === 0) {
+                    particles.push({
+                        x: bird.x + (Math.random() - 0.5) * 24,
+                        y: bird.y + (Math.random() - 0.5) * 24,
+                        vx: (Math.random() - 0.5) * 6,
+                        vy: (Math.random() - 0.5) * 6,
+                        size: 3,
+                        color: Math.random() > 0.5 ? '#FF003C' : '#00F5D4',
+                        alpha: 1,
+                        decay: 0.05
+                    });
+                }
+            } else {
+                // Fall burnt and spinning to the cyber floor
+                bird.vy += GRAVITY * 1.1;
+                bird.y += bird.vy;
+                bird.rotation += 0.25;
+                if (bird.y + bird.radius >= PLAYABLE_HEIGHT) {
+                    bird.y = PLAYABLE_HEIGHT - bird.radius;
+                    gameState = 'GAMEOVER';
+                }
+            }
+            return;
+        }
+
+        // Normal Crash Death Animation
+        if (gameState === 'DYING_NORMAL') {
+            bird.vy += GRAVITY * 1.15;
+            bird.y += bird.vy;
+            bird.rotation = Math.min(Math.PI / 2, bird.rotation + 0.14);
+            if (bird.y + bird.radius >= PLAYABLE_HEIGHT) {
+                bird.y = PLAYABLE_HEIGHT - bird.radius;
+                gameState = 'GAMEOVER';
+            }
+            return;
+        }
+
+        if (gameState !== 'PLAYING') return;
+
+        // =====================================================================
+        // ACTIVE PLAYING STATE
+        // =====================================================================
+        // Decrement active buff/trap timers
+        if (activeEffects.slowMo > 0) activeEffects.slowMo--;
+        if (activeEffects.shrink > 0) activeEffects.shrink--;
+        if (activeEffects.doubleScore > 0) activeEffects.doubleScore--;
+        if (activeEffects.gravityInvert > 0) activeEffects.gravityInvert--;
+
+        // Calculate current scroll speed (affected by stage & Chrono Slow buff)
+        const stageSpeedBonus = Math.min(1.6, (currentStage - 1) * 0.22);
+        const slowFactor = activeEffects.slowMo > 0 ? 0.58 : 1.0;
+        const currentSpeed = (BASE_SCROLL_SPEED + stageSpeedBonus) * slowFactor;
+
+        scrollBackground(currentSpeed);
+
+        // Bird Physics (Flappy Bird authentic feel + Gravity Anomaly support)
+        const gravDir = activeEffects.gravityInvert > 0 ? -0.75 : 1;
+        bird.vy += GRAVITY * gravDir * (activeEffects.slowMo > 0 ? 0.85 : 1);
+        bird.vy = Math.max(-10.5, Math.min(11.5, bird.vy));
+        bird.y += bird.vy;
+
+        // Dynamic Bird Tilt Angle
+        if (activeEffects.gravityInvert === 0) {
+            if (bird.vy < 0) {
+                bird.rotation = -0.42;
+            } else {
+                bird.rotation = Math.min(Math.PI / 2.2, bird.rotation + 0.055);
+            }
+        } else {
+            bird.rotation = bird.vy > 0 ? 0.42 : -0.42;
+        }
+
+        animateBirdWings(bird.vy < 0 ? 0.28 : 0.14);
+        updateBirdTrail();
+
+        // Effective collision radius (smaller when Nano Shrink is active)
+        const hitRadius = activeEffects.shrink > 0 ? bird.radius * 0.62 : bird.radius * 0.85;
+
+        // Floor & Ceiling Bounds
+        if (bird.y + hitRadius >= PLAYABLE_HEIGHT) {
+            bird.y = PLAYABLE_HEIGHT - hitRadius;
+            triggerNormalDeath();
+            return;
+        }
+        if (bird.y - hitRadius <= 0) {
+            bird.y = hitRadius;
+            bird.vy = 0;
+        }
+
+        // Quiz Warning Countdown -> Spawn Quiz Gate
+        if (quizWarningTimer > 0) {
+            quizWarningTimer--;
+            if (quizWarningTimer === 0) {
+                spawnQuizGate();
+            }
+        }
+
+        // Spawn Pipes periodically
+        const spawnDistance = 235;
+        if (pipes.length === 0 || (LOGICAL_WIDTH + 30 - pipes[pipes.length - 1].x) >= spawnDistance) {
+            spawnObstacleWave();
+        }
+
+        // Update Pipes & Check Collisions
+        for (let i = pipes.length - 1; i >= 0; i--) {
+            const p = pipes[i];
+            p.x -= currentSpeed;
+
+            // Moving pipe logic
+            if (p.isMoving) {
+                p.gapTop += p.moveDir * p.moveSpeed * slowFactor;
+                if (p.gapTop < 65 || p.gapTop + p.gapHeight > PLAYABLE_HEIGHT - 65) {
+                    p.moveDir *= -1;
+                }
+            }
+
+            // Laser trap cycle (180 frames cycle: 110 safe, 70 active red beam)
+            if (p.hasLaserTrap) {
+                p.laserTimer = (p.laserTimer + 1) % 180;
+            }
+
+            // Score when passing pipe center
+            if (!p.passed && p.x + PIPE_WIDTH / 2 < bird.x) {
+                p.passed = true;
+                addScore(1);
+            }
+
+            // AABB vs Circle Collision with Top & Bottom Pipes
+            const inPipeX = (bird.x + hitRadius > p.x + 3) && (bird.x - hitRadius < p.x + PIPE_WIDTH - 3);
+            if (inPipeX) {
+                const hitTop = (bird.y - hitRadius < p.gapTop);
+                const hitBottom = (bird.y + hitRadius > p.gapTop + p.gapHeight);
+
+                // Check active EMP Laser beam across gap
+                const laserActive = p.hasLaserTrap && p.laserTimer >= 110;
+                const hitLaser = laserActive && Math.abs(bird.x - (p.x + PIPE_WIDTH / 2)) < hitRadius + 4;
+
+                if (hitTop || hitBottom || hitLaser) {
+                    if (activeEffects.shield) {
+                        // Consume shield & blast pipe open!
+                        activeEffects.shield = false;
+                        audio.sfxShieldBreak();
+                        triggerScreenShake(8, 14);
+                        screenFlashColor = '#00F5D4';
+                        screenFlashAlpha = 0.45;
+                        floatingTexts.push({
+                            x: bird.x, y: bird.y - 20,
+                            text: 'SHIELD SAVED!', color: '#00F5D4', alpha: 1, vy: -1.8
+                        });
+                        // Push pipe away / remove hazard so bird doesn't immediately re-collide
+                        pipes.splice(i, 1);
+                        continue;
+                    } else {
+                        triggerNormalDeath();
+                        return;
+                    }
+                }
+            }
+
+            if (p.x + PIPE_WIDTH < -40) {
+                pipes.splice(i, 1);
+            }
+        }
+
+        // Update Collectibles (Buffs & Gravity Traps)
+        for (let i = collectibles.length - 1; i >= 0; i--) {
+            const c = collectibles[i];
+            c.x -= currentSpeed;
+            c.bobOffset += 0.08;
+
+            const dist = Math.hypot(bird.x - c.x, bird.y - c.y);
+            if (!c.collected && dist < hitRadius + c.radius) {
+                c.collected = true;
+                if (c.kind === 'BUFF') {
+                    applyBuff(c.type, c.x, c.y);
+                } else if (c.kind === 'TRAP_GRAVITY') {
+                    applyGravityTrap(c.x, c.y);
+                }
+                collectibles.splice(i, 1);
+                continue;
+            }
+
+            if (c.x < -50) collectibles.splice(i, 1);
+        }
+
+        // Update Interactive Quiz Gates
+        for (let i = quizGates.length - 1; i >= 0; i--) {
+            const qg = quizGates[i];
+            qg.x -= currentSpeed * 0.88; // Slightly slower so player has time to read & aim
+
+            // Check if bird enters the quiz gate X-zone
+            if (!qg.resolved && bird.x + hitRadius > qg.x && bird.x - hitRadius < qg.x + qg.width) {
+                // Find which slot the bird is flying through
+                let matchedSlot = null;
+                for (const slot of qg.slots) {
+                    if (bird.y >= slot.topY + 4 && bird.y <= slot.bottomY - 4) {
+                        matchedSlot = slot;
+                        break;
+                    }
+                }
+
+                // If bird hits divider beam or wrong answer slot -> Dramatic Quiz Death!
+                if (!matchedSlot || !matchedSlot.isCorrect) {
+                    qg.resolved = true;
+                    triggerQuizWrongDeath();
+                    return;
+                } else {
+                    // CORRECT ANSWER!
+                    qg.resolved = true;
+                    audio.sfxQuizCorrect();
+                    screenFlashColor = '#39FF14';
+                    screenFlashAlpha = 0.45;
+                    floatingTexts.push({
+                        x: bird.x + 20,
+                        y: bird.y - 30,
+                        text: 'ACCESS GRANTED! +5',
+                        color: '#39FF14',
+                        alpha: 1,
+                        vy: -1.5
+                    });
+                    // Burst of green data particles
+                    for (let k = 0; k < 24; k++) {
+                        particles.push({
+                            x: bird.x, y: bird.y,
+                            vx: (Math.random() - 0.5) * 7,
+                            vy: (Math.random() - 0.5) * 7,
+                            size: 3.5, color: '#39FF14', alpha: 1, decay: 0.03
+                        });
+                    }
+                    nextQuizScoreThreshold = score + 12;
+                    activeQuiz = null;
+                    addScore(5, bird.x, bird.y - 50);
+                }
+            }
+
+            if (qg.x + qg.width < -60) {
+                quizGates.splice(i, 1);
+                activeQuiz = null;
+            }
+        }
+    }
+
+    function applyBuff(type, x, y) {
+        audio.sfxBuff();
+        let label = '';
+        let color = '#00F5D4';
+
+        if (type === 'SHIELD') {
+            activeEffects.shield = true;
+            label = 'CYBER SHIELD!';
+            color = '#00F5D4';
+        } else if (type === 'SLOWMO') {
+            activeEffects.slowMo = 360; // 6 seconds
+            label = 'CHRONO SLOW!';
+            color = '#38B6FF';
+        } else if (type === 'SHRINK') {
+            activeEffects.shrink = 420; // 7 seconds
+            label = 'NANO SHRINK!';
+            color = '#39FF14';
+        } else if (type === 'DOUBLE') {
+            activeEffects.doubleScore = 480; // 8 seconds
+            label = '2X DATA BOOST!';
+            color = '#FFE600';
+        }
+
+        floatingTexts.push({ x, y: y - 15, text: label, color, alpha: 1, vy: -1.6 });
+        for (let i = 0; i < 16; i++) {
+            const ang = (Math.PI * 2 * i) / 16;
+            particles.push({
+                x, y,
+                vx: Math.cos(ang) * 3.5,
+                vy: Math.sin(ang) * 3.5,
+                size: 3, color, alpha: 1, decay: 0.035
+            });
+        }
+    }
+
+    function applyGravityTrap(x, y) {
+        audio.sfxTrap();
+        activeEffects.gravityInvert = 240; // 4 seconds inverted gravity
+        triggerScreenShake(7, 15);
+        screenFlashColor = '#9D4EDD';
+        screenFlashAlpha = 0.35;
+        floatingTexts.push({
+            x, y: y - 15,
+            text: 'GRAVITY GLITCH!',
+            color: '#E0AAFF',
+            alpha: 1,
+            vy: -1.6
+        });
+    }
+
+    function scrollBackground(speed) {
+        floorOffset = (floorOffset + speed) % 48;
+
+        for (const b of farBuildings) {
+            b.x -= speed * 0.22;
+            if (b.x + b.w < -20) {
+                const maxX = Math.max(...farBuildings.map(item => item.x + item.w));
+                b.x = maxX - 5;
+            }
+        }
+
+        for (const b of nearBuildings) {
+            b.x -= speed * 0.48;
+            if (b.x + b.w < -20) {
+                const maxX = Math.max(...nearBuildings.map(item => item.x + item.w));
+                b.x = maxX + 8;
+            }
+        }
+
+        for (const h of holoSigns) {
+            h.x -= speed * 0.48;
+            if (h.x < -60) {
+                h.x = LOGICAL_WIDTH + 80 + Math.random() * 120;
+            }
+        }
+    }
+
+    function animateBirdWings(rate) {
+        bird.wingTimer += rate;
+        if (bird.wingTimer >= 1) {
+            bird.wingTimer = 0;
+            bird.wingFrame = (bird.wingFrame + 1) % 3;
+        }
+    }
+
+    function updateBirdTrail() {
+        bird.trail.unshift({ x: bird.x - 10, y: bird.y });
+        if (bird.trail.length > 14) bird.trail.pop();
+        for (const t of bird.trail) {
+            t.x -= 2.5;
+        }
+    }
+
+    // =========================================================================
+    // 8. RENDERING ENGINE (DETAILED CYBERPUNK PIXEL-VECTOR ART)
+    // =========================================================================
+    function draw() {
+        ctx.save();
+
+        // Apply Camera Shake
+        if (shakeTimer > 0) {
+            const dx = (Math.random() - 0.5) * shakeIntensity;
+            const dy = (Math.random() - 0.5) * shakeIntensity;
+            ctx.translate(dx, dy);
+        }
+
+        const theme = getTheme();
+
+        // 1. Cyber Sky Gradient
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, PLAYABLE_HEIGHT);
+        skyGrad.addColorStop(0, theme.skyTop);
+        skyGrad.addColorStop(1, theme.skyBottom);
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, LOGICAL_WIDTH, PLAYABLE_HEIGHT);
+
+        // Synthwave Cyber Grid Horizon / Digital Sun
+        drawCyberSunAndStars(theme);
+
+        // 2. Parallax Skyline (Far & Near Buildings + Neon Holograms)
+        drawCityscape(theme);
+
+        // 3. Draw Collectibles (Buffs & Gravity Traps)
+        drawCollectibles();
+
+        // 4. Draw Cyber Pipes
+        drawPipes(theme);
+
+        // 5. Draw Interactive Quiz Gates
+        drawQuizGates();
+
+        // 6. Draw Animated Cyber Circuit Floor
+        drawCyberFloor(theme);
+
+        // 7. Draw Bird Trail & Iconic Cyber Flappy Bird
+        drawBird();
+
+        // 8. Draw Particles & Floating Texts
+        drawParticlesAndTexts();
+
+        // 9. Active Buff/Trap Status Bars (Top Left/Right)
+        if (gameState === 'PLAYING' || gameState === 'DYING_NORMAL' || gameState === 'DYING_QUIZ') {
+            drawHUD();
+        }
+
+        // 10. State Overlays (Menu, Ready, GameOver, Victory)
+        if (gameState === 'MENU') {
+            drawMainMenu();
+        } else if (gameState === 'READY') {
+            drawGetReadyOverlay();
+        } else if (gameState === 'GAMEOVER') {
+            drawGameOverModal();
+        } else if (gameState === 'VICTORY') {
+            drawVictoryModal();
+        }
+
+        // Screen Flash Overlay
+        if (screenFlashAlpha > 0) {
+            ctx.fillStyle = screenFlashColor;
+            ctx.globalAlpha = screenFlashAlpha;
+            ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+            ctx.globalAlpha = 1;
+        }
+
+        ctx.restore();
+    }
+
+    function drawCyberSunAndStars(theme) {
+        // Twinkling digital stars
+        ctx.fillStyle = '#FFFFFF';
+        for (let i = 0; i < 24; i++) {
+            const sx = (i * 73 + frameCount * 0.05) % LOGICAL_WIDTH;
+            const sy = (i * 41) % (PLAYABLE_HEIGHT * 0.45);
+            const alpha = 0.3 + 0.5 * Math.sin(frameCount * 0.05 + i);
+            ctx.globalAlpha = alpha;
+            ctx.fillRect(sx, sy, 2, 2);
+        }
+        ctx.globalAlpha = 1;
+
+        // Giant Retro-Cyber Horizon Sun
+        const sunX = LOGICAL_WIDTH * 0.72;
+        const sunY = PLAYABLE_HEIGHT * 0.34;
+        const sunR = 68;
+        const sunGrad = ctx.createLinearGradient(0, sunY - sunR, 0, sunY + sunR);
+        sunGrad.addColorStop(0, theme.accentNeon);
+        sunGrad.addColorStop(1, 'rgba(255, 0, 128, 0.15)');
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+        ctx.fillStyle = sunGrad;
+        ctx.fill();
+
+        // Horizontal synthwave scanline cuts across the sun
+        ctx.fillStyle = theme.skyBottom;
+        for (let y = sunY + 5; y < sunY + sunR; y += 11) {
+            ctx.fillRect(sunX - sunR, y, sunR * 2, 3.5);
+        }
+        ctx.restore();
+    }
+
+    function drawCityscape(theme) {
+        // Far silhouette towers
+        for (const b of farBuildings) {
+            const topY = PLAYABLE_HEIGHT - b.h;
+            ctx.fillStyle = theme.cityFar;
+            ctx.fillRect(b.x, topY, b.w, b.h);
+            if (b.antenna) {
+                ctx.fillRect(b.x + b.w / 2 - 1, topY - 22, 2, 22);
+                ctx.fillStyle = theme.accentNeon;
+                ctx.fillRect(b.x + b.w / 2 - 2, topY - 25, 4, 4);
+            }
+        }
+
+        // Near cyberpunk skyscrapers with glowing windows
+        for (const b of nearBuildings) {
+            const topY = PLAYABLE_HEIGHT - b.h;
+            ctx.fillStyle = theme.cityNear;
+            ctx.fillRect(b.x, topY, b.w, b.h);
+
+            // Neon edge trim
+            ctx.fillStyle = theme.accentNeon;
+            ctx.globalAlpha = 0.25;
+            ctx.fillRect(b.x, topY, 2, b.h);
+            ctx.globalAlpha = 1;
+
+            // Lit windows
+            for (const win of b.litWindows) {
+                if (win.blink && Math.sin(frameCount * 0.08 + win.r) < -0.5) continue;
+                ctx.fillStyle = theme.accentNeon;
+                ctx.globalAlpha = 0.35;
+                ctx.fillRect(b.x + 8 + win.c * 13, topY + 10 + win.r * 17, 6, 9);
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Floating Neon Hologram Signs
+        ctx.font = 'bold 11px "Orbitron", sans-serif';
+        ctx.textAlign = 'center';
+        for (const h of holoSigns) {
+            const floatY = h.y + Math.sin(frameCount * 0.05 + h.x * 0.02) * 4;
+            ctx.strokeStyle = h.color;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(h.x - 24, floatY - 12, 48, 16);
+            ctx.fillStyle = h.color;
+            ctx.fillText(h.text, h.x, floatY);
+        }
+    }
+
+    function drawPipes(theme) {
+        for (const p of pipes) {
+            const topH = p.gapTop;
+            const botY = p.gapTop + p.gapHeight;
+            const botH = PLAYABLE_HEIGHT - botY;
+
+            // Draw Top Pipe
+            drawSingleCyberPipe(p.x, 0, PIPE_WIDTH, topH, true, theme);
+            // Draw Bottom Pipe
+            drawSingleCyberPipe(p.x, botY, PIPE_WIDTH, botH, false, theme);
+
+            // Draw EMP Laser Trap between pipe lips if present
+            if (p.hasLaserTrap) {
+                const centerX = p.x + PIPE_WIDTH / 2;
+                const active = p.laserTimer >= 110;
+                const warning = p.laserTimer >= 75 && p.laserTimer < 110;
+
+                // Emitter nodes on pipe lips
+                ctx.fillStyle = '#FF003C';
+                ctx.fillRect(centerX - 8, topH - 4, 16, 6);
+                ctx.fillRect(centerX - 8, botY - 2, 16, 6);
+
+                if (warning) {
+                    // Thin targeting laser line
+                    ctx.strokeStyle = 'rgba(255, 0, 60, 0.55)';
+                    ctx.setLineDash([6, 6]);
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, topH);
+                    ctx.lineTo(centerX, botY);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else if (active) {
+                    // Deadly high-energy EMP plasma beam
+                    ctx.save();
+                    ctx.shadowColor = '#FF003C';
+                    ctx.shadowBlur = 15;
+                    ctx.strokeStyle = '#FF003C';
+                    ctx.lineWidth = 8 + Math.sin(frameCount * 0.8) * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, topH);
+                    ctx.lineTo(centerX, botY);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#FFFFFF';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, topH);
+                    ctx.lineTo(centerX, botY);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }
+    }
+
+    function drawSingleCyberPipe(x, y, w, h, isTop, theme) {
+        if (h <= 0) return;
+
+        // 1. Main Pipe Shaft with metallic cyber shading (authentic Flappy Bird 3D cylindrical highlight)
+        const shaftGrad = ctx.createLinearGradient(x, 0, x + w, 0);
+        shaftGrad.addColorStop(0, theme.pipeDark);
+        shaftGrad.addColorStop(0.25, theme.pipeLight);
+        shaftGrad.addColorStop(0.55, theme.pipeBody);
+        shaftGrad.addColorStop(1, theme.pipeDark);
+
+        ctx.fillStyle = shaftGrad;
+        ctx.fillRect(x + 4, y, w - 8, h);
+
+        // Dark outer pixel-style border
+        ctx.strokeStyle = '#05070F';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(x + 4, y, w - 8, h);
+
+        // Glowing Cyber Circuit Lines inside pipe shaft
+        ctx.strokeStyle = theme.pipeNeon;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.65;
+        ctx.beginPath();
+        ctx.moveTo(x + 18, y);
+        ctx.lineTo(x + 18, y + h);
+        ctx.moveTo(x + w - 18, y);
+        ctx.lineTo(x + w - 18, y + h);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // 2. Iconic Flappy Bird Protruding Pipe Lip (Collar)
+        const lipH = 28;
+        const lipY = isTop ? (y + h - lipH) : y;
+        if (h >= lipH) {
+            const lipGrad = ctx.createLinearGradient(x, 0, x + w, 0);
+            lipGrad.addColorStop(0, theme.pipeDark);
+            lipGrad.addColorStop(0.22, theme.pipeLight);
+            lipGrad.addColorStop(0.6, theme.pipeBody);
+            lipGrad.addColorStop(1, theme.pipeDark);
+
+            ctx.fillStyle = lipGrad;
+            ctx.fillRect(x, lipY, w, lipH);
+
+            ctx.strokeStyle = '#05070F';
+            ctx.lineWidth = 2.5;
+            ctx.strokeRect(x, lipY, w, lipH);
+
+            // Neon LED strip along the pipe collar
+            ctx.fillStyle = theme.pipeNeon;
+            ctx.shadowColor = theme.pipeNeon;
+            ctx.shadowBlur = 8;
+            ctx.fillRect(x + 6, lipY + lipH / 2 - 2, w - 12, 4);
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    function drawCollectibles() {
+        for (const c of collectibles) {
+            const drawY = c.y + Math.sin(c.bobOffset) * 5;
+            ctx.save();
+            ctx.translate(c.x, drawY);
+
+            if (c.kind === 'BUFF') {
+                const colors = {
+                    SHIELD: '#00F5D4',
+                    SLOWMO: '#38B6FF',
+                    SHRINK: '#39FF14',
+                    DOUBLE: '#FFE600'
+                };
+                const icons = {
+                    SHIELD: 'S',
+                    SLOWMO: 'T',
+                    SHRINK: 'M',
+                    DOUBLE: '2X'
+                };
+                const col = colors[c.type] || '#00F5D4';
+
+                // Outer rotating hexagon/ring
+                ctx.rotate(frameCount * 0.04);
+                ctx.strokeStyle = col;
+                ctx.lineWidth = 2.5;
+                ctx.shadowColor = col;
+                ctx.shadowBlur = 12;
+                ctx.strokeRect(-13, -13, 26, 26);
+                ctx.rotate(-frameCount * 0.04);
+
+                ctx.fillStyle = 'rgba(10, 15, 30, 0.85)';
+                ctx.fillRect(-11, -11, 22, 22);
+
+                ctx.fillStyle = col;
+                ctx.font = 'bold 12px "Orbitron", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(icons[c.type], 0, 1);
+            } else if (c.kind === 'TRAP_GRAVITY') {
+                // Swirling Purple Gravity Anomaly Vortex
+                ctx.rotate(-frameCount * 0.09);
+                ctx.strokeStyle = '#C77DFF';
+                ctx.lineWidth = 2.5;
+                ctx.shadowColor = '#9D4EDD';
+                ctx.shadowBlur = 14;
+                ctx.beginPath();
+                ctx.arc(0, 0, c.radius, 0, Math.PI * 1.5);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(0, 0, c.radius * 0.6, Math.PI * 0.5, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.fillStyle = '#E0AAFF';
+                ctx.font = 'bold 10px "Orbitron", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.rotate(frameCount * 0.09);
+                ctx.fillText('!G!', 0, 0);
+            }
+            ctx.restore();
+        }
+    }
+
+    function drawQuizGates() {
+        for (const qg of quizGates) {
+            // Draw top & bottom divider laser beams
+            ctx.fillStyle = '#1E1B4B';
+            ctx.strokeStyle = '#00F5D4';
+            ctx.lineWidth = 2;
+
+            // Top cap
+            ctx.fillRect(qg.x, 0, qg.width, qg.barrierHeight);
+            ctx.strokeRect(qg.x, 0, qg.width, qg.barrierHeight);
+
+            for (const slot of qg.slots) {
+                // Draw divider bar below each slot
+                ctx.fillStyle = '#1E1B4B';
+                ctx.fillRect(qg.x, slot.bottomY, qg.width, qg.barrierHeight);
+                ctx.strokeStyle = '#FF2A6D';
+                ctx.strokeRect(qg.x, slot.bottomY, qg.width, qg.barrierHeight);
+
+                // Draw holographic answer field inside the slot
+                const midY = (slot.topY + slot.bottomY) / 2;
+                ctx.fillStyle = 'rgba(0, 245, 212, 0.12)';
+                ctx.fillRect(qg.x + 4, slot.topY + 2, qg.width - 8, slot.bottomY - slot.topY - 4);
+
+                // Option Badge (A / B / C) + Answer Value
+                ctx.fillStyle = '#FFE600';
+                ctx.font = 'bold 13px "Press Start 2P", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(slot.label, qg.x + qg.width / 2, midY - 8);
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 13px "Orbitron", sans-serif';
+                ctx.fillText(slot.text, qg.x + qg.width / 2, midY + 14);
+            }
+        }
+    }
+
+    function drawCyberFloor(theme) {
+        const y = PLAYABLE_HEIGHT;
+
+        // Base dark tech floor
+        ctx.fillStyle = '#090D1E';
+        ctx.fillRect(0, y, LOGICAL_WIDTH, FLOOR_HEIGHT);
+
+        // Top glowing neon border line
+        ctx.fillStyle = theme.accentNeon;
+        ctx.shadowColor = theme.accentNeon;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(0, y, LOGICAL_WIDTH, 4);
+        ctx.shadowBlur = 0;
+
+        // Classic Flappy Bird diagonal moving chevron stripes (Cyber style)
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, y + 4, LOGICAL_WIDTH, 22);
+        ctx.clip();
+
+        ctx.fillStyle = '#16213E';
+        ctx.fillRect(0, y + 4, LOGICAL_WIDTH, 22);
+
+        ctx.fillStyle = theme.accentNeon;
+        ctx.globalAlpha = 0.65;
+        for (let sx = -48; sx < LOGICAL_WIDTH + 48; sx += 48) {
+            const drawX = sx - floorOffset;
+            ctx.beginPath();
+            ctx.moveTo(drawX, y + 26);
+            ctx.lineTo(drawX + 16, y + 4);
+            ctx.lineTo(drawX + 32, y + 4);
+            ctx.lineTo(drawX + 16, y + 26);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.restore();
+
+        // Perspective Synthwave Grid on lower floor
+        ctx.strokeStyle = theme.accentNeon;
+        ctx.globalAlpha = 0.22;
+        ctx.lineWidth = 1.5;
+        for (let gx = -48; gx < LOGICAL_WIDTH + 96; gx += 48) {
+            const drawX = gx - floorOffset;
+            ctx.beginPath();
+            ctx.moveTo(drawX, y + 26);
+            ctx.lineTo(drawX - 24, LOGICAL_HEIGHT);
+            ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.moveTo(0, y + 55);
+        ctx.lineTo(LOGICAL_WIDTH, y + 55);
+        ctx.moveTo(0, y + 85);
+        ctx.lineTo(LOGICAL_WIDTH, y + 85);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
+
+    function drawBird() {
+        const skin = BIRD_SKINS[selectedSkinIndex];
+
+        // 1. Draw Neon Motion Trail
+        for (let i = 0; i < bird.trail.length; i++) {
+            const pt = bird.trail[i];
+            const ratio = 1 - i / bird.trail.length;
+            ctx.fillStyle = skin.trailColor;
+            ctx.globalAlpha = ratio * 0.45;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, bird.radius * 0.55 * ratio, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        ctx.save();
+        ctx.translate(bird.x, bird.y);
+        ctx.rotate(bird.rotation);
+
+        // Apply Nano Shrink visual scale
+        const scale = activeEffects.shrink > 0 ? 0.62 : 1.0;
+        ctx.scale(scale, scale);
+
+        // If bird is charred from wrong quiz electrocution
+        const bodyMain = bird.charred ? '#2B2D42' : skin.bodyMain;
+        const bodyShade = bird.charred ? '#14151F' : skin.bodyShade;
+        const bodyHighlight = bird.charred ? '#4A4E69' : skin.bodyHighlight;
+
+        // 2. Iconic Flappy Bird Round Body (Pixel-Vector Layered Shading)
+        ctx.fillStyle = bodyMain;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 19, 15, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Bottom shading
+        ctx.fillStyle = bodyShade;
+        ctx.beginPath();
+        ctx.ellipse(0, 5, 17, 9, 0, 0, Math.PI);
+        ctx.fill();
+
+        // Top highlight
+        ctx.fillStyle = bodyHighlight;
+        ctx.beginPath();
+        ctx.ellipse(-2, -7, 11, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Dark Outline (Classic Flappy Bird crisp silhouette)
+        ctx.strokeStyle = '#080812';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 19, 15, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Cyber Circuit Line on body
+        ctx.strokeStyle = skin.visorColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-14, 2);
+        ctx.lineTo(-6, 2);
+        ctx.lineTo(-3, 6);
+        ctx.stroke();
+
+        // 3. Large Iconic Flappy Eye + Cyber Visor Lens
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(7, -5, 6.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#080812';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Pupil (or X-eye if dead!)
+        if (gameState === 'DYING_NORMAL' || gameState === 'DYING_QUIZ' || gameState === 'GAMEOVER') {
+            ctx.strokeStyle = '#FF003C';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(6, -7); ctx.lineTo(11, -2);
+            ctx.moveTo(11, -7); ctx.lineTo(6, -2);
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = '#080812';
+            ctx.beginPath();
+            ctx.arc(9.5, -5, 2.6, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Glowing Cyber Visor Strip across eye
+            ctx.fillStyle = skin.visorColor;
+            ctx.globalAlpha = 0.55;
+            ctx.fillRect(2, -8, 12, 4.5);
+            ctx.globalAlpha = 1;
+        }
+
+        // 4. Iconic Thick Two-Part Flappy Beak
+        // Upper Lip
+        ctx.fillStyle = skin.beakTop;
+        ctx.beginPath();
+        ctx.roundRect(11, -1, 13, 6, 3);
+        ctx.fill();
+        ctx.strokeStyle = '#080812';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Lower Lip
+        ctx.fillStyle = skin.beakBottom;
+        ctx.beginPath();
+        ctx.roundRect(11, 4.5, 11, 5, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        // 5. Animated 3-Frame Flappy Wing
+        const wingOffsets = [-3, 2, 6]; // Up, Mid, Down
+        const wy = wingOffsets[bird.wingFrame];
+        ctx.fillStyle = skin.wingColor;
+        ctx.beginPath();
+        ctx.ellipse(-6, wy, 9.5, 6, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#080812';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 6. Active Cyber Shield Bubble
+        if (activeEffects.shield) {
+            ctx.strokeStyle = '#00F5D4';
+            ctx.lineWidth = 2.5;
+            ctx.shadowColor = '#00F5D4';
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.arc(0, 0, 26 + Math.sin(frameCount * 0.15) * 2, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(0, 245, 212, 0.14)';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.restore();
+    }
+
+    function drawParticlesAndTexts() {
+        for (const p of particles) {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = Math.max(0, p.alpha);
+            ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+        }
+        ctx.globalAlpha = 1;
+
+        for (const fw of fireworks) {
+            ctx.fillStyle = fw.color;
+            ctx.globalAlpha = Math.max(0, fw.alpha);
+            ctx.beginPath();
+            ctx.arc(fw.x, fw.y, fw.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        ctx.font = 'bold 14px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        for (const ft of floatingTexts) {
+            ctx.globalAlpha = Math.max(0, ft.alpha);
+            ctx.fillStyle = '#000000';
+            ctx.fillText(ft.text, ft.x + 2, ft.y + 2);
+            ctx.fillStyle = ft.color;
+            ctx.fillText(ft.text, ft.x, ft.y);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function drawHUD() {
+        const theme = getTheme();
+
+        // Big Classic Flappy Bird Center Score with Cyber Outline
+        ctx.save();
+        ctx.translate(LOGICAL_WIDTH / 2, 68);
+        ctx.scale(scorePopScale, scorePopScale);
+        ctx.font = 'bold 42px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#050510';
+        ctx.fillText(score.toString(), 4, 4);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(score.toString(), 0, 0);
+        ctx.restore();
+
+        // Stage Indicator Pill (Top Left)
+        ctx.fillStyle = 'rgba(10, 14, 35, 0.78)';
+        ctx.strokeStyle = theme.accentNeon;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(14, 14, 128, 30, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = theme.accentNeon;
+        ctx.font = 'bold 11px "Orbitron", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(endlessMode ? `ENDLESS LV.${currentStage}` : `STAGE ${currentStage} / ${WIN_STAGE_TARGET}`, 24, 33);
+
+        // High Score Pill (Top Right)
+        ctx.fillStyle = 'rgba(10, 14, 35, 0.78)';
+        ctx.strokeStyle = '#FFE600';
+        ctx.beginPath();
+        ctx.roundRect(LOGICAL_WIDTH - 134, 14, 120, 30, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#FFE600';
+        ctx.textAlign = 'right';
+        ctx.fillText(`BEST: ${highScore}`, LOGICAL_WIDTH - 24, 33);
+
+        // Active Power-Up / Trap Status Indicators (Below Top Bar)
+        let statusY = 56;
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 10px "Orbitron", sans-serif';
+
+        if (activeEffects.shield) {
+            drawStatusBadge(14, statusY, 'SHIELD ACTIVE', '#00F5D4');
+            statusY += 22;
+        }
+        if (activeEffects.slowMo > 0) {
+            drawStatusBadge(14, statusY, `CHRONO ${(activeEffects.slowMo / 60).toFixed(1)}s`, '#38B6FF');
+            statusY += 22;
+        }
+        if (activeEffects.shrink > 0) {
+            drawStatusBadge(14, statusY, `MINI ${(activeEffects.shrink / 60).toFixed(1)}s`, '#39FF14');
+            statusY += 22;
+        }
+        if (activeEffects.doubleScore > 0) {
+            drawStatusBadge(14, statusY, `2X PTS ${(activeEffects.doubleScore / 60).toFixed(1)}s`, '#FFE600');
+            statusY += 22;
+        }
+        if (activeEffects.gravityInvert > 0) {
+            drawStatusBadge(14, statusY, `GRAVITY INVERT!`, '#E0AAFF');
+        }
+
+        // Stage Transition Banner
+        if (stageBannerTimer > 0) {
+            const alpha = Math.min(1, stageBannerTimer / 30);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = 'rgba(5, 8, 22, 0.85)';
+            ctx.strokeStyle = theme.accentNeon;
+            ctx.lineWidth = 2;
+            ctx.fillRect(0, 118, LOGICAL_WIDTH, 36);
+            ctx.strokeRect(-2, 118, LOGICAL_WIDTH + 4, 36);
+
+            ctx.fillStyle = theme.accentNeon;
+            ctx.font = 'bold 13px "Orbitron", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(stageBannerText, LOGICAL_WIDTH / 2, 141);
+            ctx.restore();
+        }
+
+        // QUIZ GATE WARNING OR ACTIVE QUESTION PANEL
+        if (quizWarningTimer > 0) {
+            const blink = Math.floor(frameCount / 8) % 2 === 0;
+            ctx.fillStyle = blink ? 'rgba(255, 0, 60, 0.9)' : 'rgba(20, 10, 30, 0.9)';
+            ctx.strokeStyle = '#FFE600';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.roundRect(35, 115, LOGICAL_WIDTH - 70, 56, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 13px "Press Start 2P", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('! QUIZ GATE INCOMING !', LOGICAL_WIDTH / 2, 140);
+            ctx.font = 'bold 11px "Orbitron", sans-serif';
+            ctx.fillStyle = '#FFE600';
+            ctx.fillText('MASUK KE CELAH JAWABAN YANG BENAR!', LOGICAL_WIDTH / 2, 160);
+        } else if (activeQuiz && quizGates.length > 0) {
+            // Top Question Display Box
+            ctx.fillStyle = 'rgba(8, 12, 34, 0.92)';
+            ctx.strokeStyle = '#00F5D4';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.roundRect(24, 104, LOGICAL_WIDTH - 48, 54, 12);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#00F5D4';
+            ctx.font = 'bold 10px "Orbitron", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('SECURITY VERIFICATION // PILIH JALUR BENAR:', LOGICAL_WIDTH / 2, 122);
+
+            ctx.fillStyle = '#FFE600';
+            ctx.font = 'bold 15px "Press Start 2P", monospace';
+            ctx.fillText(activeQuiz.q, LOGICAL_WIDTH / 2, 146);
+        }
+    }
+
+    function drawStatusBadge(x, y, text, color) {
+        ctx.fillStyle = 'rgba(5, 8, 22, 0.8)';
+        ctx.fillRect(x, y, 128, 18);
+        ctx.fillStyle = color;
+        ctx.fillText(text, x + 6, y + 13);
+    }
+
+    // =========================================================================
+    // 9. MAIN MENU, READY, GAME OVER & VICTORY SCREENS
+    // =========================================================================
+    function drawMainMenu() {
+        // Subtle dark backdrop tint
+        ctx.fillStyle = 'rgba(5, 7, 20, 0.52)';
+        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+        const floatY = Math.sin(frameCount * 0.06) * 6;
+
+        // Neon Title Logo
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 34px "Press Start 2P", monospace';
+        ctx.fillStyle = '#FF2A6D';
+        ctx.fillText('CYBER', LOGICAL_WIDTH / 2 + 3, 125 + floatY + 3);
+        ctx.fillStyle = '#00F5D4';
+        ctx.fillText('CYBER', LOGICAL_WIDTH / 2, 125 + floatY);
+
+        ctx.font = 'bold 30px "Press Start 2P", monospace';
+        ctx.fillStyle = '#050510';
+        ctx.fillText('FLAPPY', LOGICAL_WIDTH / 2 + 3, 168 + floatY + 3);
+        ctx.fillStyle = '#FFE600';
+        ctx.fillText('FLAPPY', LOGICAL_WIDTH / 2, 168 + floatY);
+
+        ctx.font = 'bold 11px "Orbitron", sans-serif';
+        ctx.fillStyle = '#E0FBFC';
+        ctx.fillText('NEON OVERDRIVE EDITION // HIGH SCORE: ' + highScore, LOGICAL_WIDTH / 2, 198);
+        ctx.restore();
+
+        // Skin Selector Panel
+        const panelY = 425;
+        ctx.fillStyle = 'rgba(11, 16, 40, 0.88)';
+        ctx.strokeStyle = '#00F5D4';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(32, panelY, LOGICAL_WIDTH - 64, 112, 14);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#00F5D4';
+        ctx.font = 'bold 11px "Orbitron", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('PILIH UNIT CYBER BIRD', LOGICAL_WIDTH / 2, panelY + 22);
+
+        uiButtons.skinBtns = [];
+        const btnW = 112;
+        const btnH = 66;
+        const gap = 12;
+        const startX = (LOGICAL_WIDTH - (btnW * 3 + gap * 2)) / 2;
+
+        BIRD_SKINS.forEach((s, idx) => {
+            const bx = startX + idx * (btnW + gap);
+            const by = panelY + 34;
+            const isSelected = idx === selectedSkinIndex;
+
+            uiButtons.skinBtns.push({ x: bx, y: by, w: btnW, h: btnH, index: idx });
+
+            ctx.fillStyle = isSelected ? 'rgba(0, 245, 212, 0.22)' : 'rgba(20, 28, 64, 0.8)';
+            ctx.strokeStyle = isSelected ? '#FFE600' : '#415A77';
+            ctx.lineWidth = isSelected ? 2.5 : 1.5;
+            ctx.beginPath();
+            ctx.roundRect(bx, by, btnW, btnH, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            // Mini color swatch circle
+            ctx.fillStyle = s.bodyMain;
+            ctx.beginPath();
+            ctx.arc(bx + btnW / 2, by + 25, 12, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.fillStyle = isSelected ? '#FFE600' : '#CBD5E1';
+            ctx.font = 'bold 9px "Orbitron", sans-serif';
+            ctx.fillText(s.name.split(' ')[1], bx + btnW / 2, by + 53);
+        });
+
+        // Legend / Quick Guide Box
+        const guideY = 550;
+        ctx.fillStyle = 'rgba(11, 16, 40, 0.82)';
+        ctx.strokeStyle = '#FF2A6D';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(32, guideY, LOGICAL_WIDTH - 64, 72, 12);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = '10px "Orbitron", sans-serif';
+        ctx.fillStyle = '#00F5D4';
+        ctx.fillText('BUFF: [S] Shield  [T] SlowMo  [M] Mini  [2X] Skor', LOGICAL_WIDTH / 2, guideY + 22);
+        ctx.fillStyle = '#FF8FA3';
+        ctx.fillText('TRAP: Laser EMP & [!G!] Gravity Glitch', LOGICAL_WIDTH / 2, guideY + 41);
+        ctx.fillStyle = '#FFE600';
+        ctx.fillText('QUIZ GATE: Terbang ke celah jawaban BENAR!', LOGICAL_WIDTH / 2, guideY + 60);
+
+        // START GAME Button
+        const startBtn = { x: 65, y: 638, w: LOGICAL_WIDTH - 130, h: 54 };
+        uiButtons.startBtn = startBtn;
+
+        const btnGrad = ctx.createLinearGradient(startBtn.x, startBtn.y, startBtn.x + startBtn.w, startBtn.y);
+        btnGrad.addColorStop(0, '#00F5D4');
+        btnGrad.addColorStop(1, '#00BBF9');
+
+        ctx.fillStyle = btnGrad;
+        ctx.shadowColor = '#00F5D4';
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.roundRect(startBtn.x, startBtn.y, startBtn.w, startBtn.h, 14);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#050510';
+        ctx.font = 'bold 16px "Press Start 2P", monospace';
+        ctx.fillText('START GAME', LOGICAL_WIDTH / 2, startBtn.y + 35);
+
+        // Audio Toggle Button (Top Right)
+        const audioBtn = { x: LOGICAL_WIDTH - 115, y: 18, w: 98, h: 32 };
+        uiButtons.audioBtn = audioBtn;
+        ctx.fillStyle = 'rgba(11, 16, 40, 0.9)';
+        ctx.strokeStyle = audio.enabled ? '#39FF14' : '#FF2A6D';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(audioBtn.x, audioBtn.y, audioBtn.w, audioBtn.h, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = audio.enabled ? '#39FF14' : '#FF2A6D';
+        ctx.font = 'bold 10px "Orbitron", sans-serif';
+        ctx.fillText(audio.enabled ? 'AUDIO: ON' : 'AUDIO: OFF', audioBtn.x + audioBtn.w / 2, audioBtn.y + 20);
+    }
+
+    function drawGetReadyOverlay() {
+        ctx.save();
+        ctx.textAlign = 'center';
+
+        ctx.font = 'bold 26px "Press Start 2P", monospace';
+        ctx.fillStyle = '#050510';
+        ctx.fillText('GET READY!', LOGICAL_WIDTH / 2 + 3, 215 + 3);
+        ctx.fillStyle = '#00F5D4';
+        ctx.fillText('GET READY!', LOGICAL_WIDTH / 2, 215);
+
+        // Animated Tap / Spacebar Icon Prompt
+        const pulse = 1 + Math.sin(frameCount * 0.12) * 0.08;
+        ctx.translate(LOGICAL_WIDTH / 2, 465);
+        ctx.scale(pulse, pulse);
+
+        ctx.fillStyle = 'rgba(10, 15, 35, 0.85)';
+        ctx.strokeStyle = '#FFE600';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-125, -24, 250, 48, 12);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#FFE600';
+        ctx.font = 'bold 12px "Press Start 2P", monospace';
+        ctx.fillText('TAP / SPACE TO FLY', 0, 5);
+        ctx.restore();
+    }
+
+    function drawGameOverModal() {
+        ctx.fillStyle = 'rgba(5, 6, 18, 0.72)';
+        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+        const isQuizDeath = deathReason === 'QUIZ_WRONG';
+        const boxW = 360;
+        const boxH = 380;
+        const bx = (LOGICAL_WIDTH - boxW) / 2;
+        const by = 185;
+
+        // Card Container
+        ctx.fillStyle = '#0D1326';
+        ctx.strokeStyle = isQuizDeath ? '#FF003C' : '#00F5D4';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = isQuizDeath ? '#FF003C' : '#00F5D4';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, boxW, boxH, 18);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+
+        // Header Title
+        if (isQuizDeath) {
+            ctx.fillStyle = '#FF003C';
+            ctx.font = 'bold 18px "Press Start 2P", monospace';
+            ctx.fillText('SYSTEM TERMINATED', LOGICAL_WIDTH / 2, by + 46);
+            ctx.fillStyle = '#FF8FA3';
+            ctx.font = 'bold 11px "Orbitron", sans-serif';
+            ctx.fillText('JAWABAN SALAH // TEGANGAN TINGGI!', LOGICAL_WIDTH / 2, by + 72);
+        } else {
+            ctx.fillStyle = '#FF2A6D';
+            ctx.font = 'bold 24px "Press Start 2P", monospace';
+            ctx.fillText('GAME OVER', LOGICAL_WIDTH / 2, by + 48);
+            ctx.fillStyle = '#94A3B8';
+            ctx.font = 'bold 11px "Orbitron", sans-serif';
+            ctx.fillText(`TERHENTI DI STAGE ${currentStage}`, LOGICAL_WIDTH / 2, by + 72);
+        }
+
+        // Medal Calculation (Authentic Flappy Bird Medal Tiers)
+        let medalName = 'NO MEDAL';
+        let medalColor = '#475569';
+        if (score >= 40) { medalName = 'CYBER PLATINUM'; medalColor = '#00F5D4'; }
+        else if (score >= 25) { medalName = 'GOLD CORE'; medalColor = '#FFE600'; }
+        else if (score >= 12) { medalName = 'SILVER NODE'; medalColor = '#E2E8F0'; }
+        else if (score >= 5) { medalName = 'BRONZE CHIP'; medalColor = '#CD7F32'; }
+
+        // Medal Circle (Left side of scoreboard)
+        const medalX = bx + 85;
+        const medalY = by + 155;
+        ctx.fillStyle = '#1E293B';
+        ctx.beginPath();
+        ctx.arc(medalX, medalY, 36, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (score >= 5) {
+            ctx.fillStyle = medalColor;
+            ctx.shadowColor = medalColor;
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.arc(medalX, medalY, 30, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = '#050510';
+            ctx.font = 'bold 16px "Press Start 2P", monospace';
+            ctx.fillText('★', medalX, medalY + 6);
+        }
+
+        ctx.fillStyle = medalColor;
+        ctx.font = 'bold 9px "Orbitron", sans-serif';
+        ctx.fillText(medalName, medalX, medalY + 52);
+
+        // Score & High Score Stats (Right side)
+        const statX = bx + 245;
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = 'bold 11px "Orbitron", sans-serif';
+        ctx.fillText('SCORE', statX, by + 122);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 24px "Press Start 2P", monospace';
+        ctx.fillText(score.toString(), statX, by + 152);
+
+        ctx.fillStyle = '#FFE600';
+        ctx.font = 'bold 11px "Orbitron", sans-serif';
+        ctx.fillText(isNewHighScore ? 'NEW BEST!' : 'BEST SCORE', statX, by + 185);
+
+        ctx.fillStyle = '#FFE600';
+        ctx.font = 'bold 22px "Press Start 2P", monospace';
+        ctx.fillText(highScore.toString(), statX, by + 214);
+
+        // Action Buttons: PLAY AGAIN & MAIN MENU
+        const restartBtn = { x: bx + 28, y: by + 252, w: boxW - 56, h: 48 };
+        const menuBtn = { x: bx + 28, y: by + 312, w: boxW - 56, h: 44 };
+        uiButtons.restartBtn = restartBtn;
+        uiButtons.menuBtn = menuBtn;
+
+        // Play Again Button
+        ctx.fillStyle = '#00F5D4';
+        ctx.beginPath();
+        ctx.roundRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h, 12);
+        ctx.fill();
+        ctx.fillStyle = '#050510';
+        ctx.font = 'bold 14px "Press Start 2P", monospace';
+        ctx.fillText('PLAY AGAIN', LOGICAL_WIDTH / 2, restartBtn.y + 31);
+
+        // Main Menu Button
+        ctx.fillStyle = '#1E293B';
+        ctx.strokeStyle = '#64748B';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(menuBtn.x, menuBtn.y, menuBtn.w, menuBtn.h, 12);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#E2E8F0';
+        ctx.font = 'bold 12px "Orbitron", sans-serif';
+        ctx.fillText('MAIN MENU', LOGICAL_WIDTH / 2, menuBtn.y + 27);
+    }
+
+    function drawVictoryModal() {
+        ctx.fillStyle = 'rgba(5, 6, 18, 0.65)';
+        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+        const boxW = 365;
+        const boxH = 360;
+        const bx = (LOGICAL_WIDTH - boxW) / 2;
+        const by = 195;
+
+        ctx.fillStyle = '#0F172A';
+        ctx.strokeStyle = '#FFE600';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#FFE600';
+        ctx.shadowBlur = 24;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, boxW, boxH, 18);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#FFE600';
+        ctx.font = 'bold 22px "Press Start 2P", monospace';
+        ctx.fillText('SYSTEM CLEARED!', LOGICAL_WIDTH / 2, by + 50);
+
+        ctx.fillStyle = '#00F5D4';
+        ctx.font = 'bold 12px "Orbitron", sans-serif';
+        ctx.fillText('SEMUA 5 SEKTOR CYBER BERHASIL DITAKLUKKAN!', LOGICAL_WIDTH / 2, by + 80);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 28px "Press Start 2P", monospace';
+        ctx.fillText(`SCORE: ${score}`, LOGICAL_WIDTH / 2, by + 135);
+
+        ctx.fillStyle = '#39FF14';
+        ctx.font = 'bold 12px "Orbitron", sans-serif';
+        ctx.fillText(`HIGH SCORE: ${highScore}`, LOGICAL_WIDTH / 2, by + 165);
+
+        // Endless Mode Button
+        const endlessBtn = { x: bx + 28, y: by + 195, w: boxW - 56, h: 48 };
+        const menuBtn = { x: bx + 28, y: by + 258, w: boxW - 56, h: 44 };
+        uiButtons.endlessBtn = endlessBtn;
+        uiButtons.menuBtn = menuBtn;
+
+        ctx.fillStyle = '#FFE600';
+        ctx.beginPath();
+        ctx.roundRect(endlessBtn.x, endlessBtn.y, endlessBtn.w, endlessBtn.h, 12);
+        ctx.fill();
+        ctx.fillStyle = '#050510';
+        ctx.font = 'bold 12px "Press Start 2P", monospace';
+        ctx.fillText('ENDLESS MODE', LOGICAL_WIDTH / 2, endlessBtn.y + 30);
+
+        ctx.fillStyle = '#1E293B';
+        ctx.strokeStyle = '#00F5D4';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(menuBtn.x, menuBtn.y, menuBtn.w, menuBtn.h, 12);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#00F5D4';
+        ctx.font = 'bold 12px "Orbitron", sans-serif';
+        ctx.fillText('MAIN MENU', LOGICAL_WIDTH / 2, menuBtn.y + 27);
+    }
+
+    // =========================================================================
+    // 10. INPUT HANDLING (MOUSE, TOUCH & KEYBOARD)
+    // =========================================================================
+    function getLogicalCoords(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        const x = ((clientX - rect.left) / rect.width) * LOGICAL_WIDTH;
+        const y = ((clientY - rect.top) / rect.height) * LOGICAL_HEIGHT;
+        return { x, y };
+    }
+
+    function isInside(pt, rect) {
+        return pt.x >= rect.x && pt.x <= rect.x + rect.w &&
+               pt.y >= rect.y && pt.y <= rect.y + rect.h;
+    }
+
+    function handlePointerInput(clientX, clientY) {
+        audio.init();
+        const pt = getLogicalCoords(clientX, clientY);
+
+        if (gameState === 'MENU') {
+            // Check Audio Toggle
+            if (isInside(pt, uiButtons.audioBtn)) {
+                audio.toggle();
+                audio.sfxClick();
+                return;
+            }
+            // Check Skin Selection
+            for (const sBtn of uiButtons.skinBtns) {
+                if (isInside(pt, sBtn)) {
+                    selectedSkinIndex = sBtn.index;
+                    audio.sfxClick();
+                    return;
+                }
+            }
+            // Check Start Button
+            if (isInside(pt, uiButtons.startBtn)) {
+                audio.sfxClick();
+                resetGameToReady();
+                return;
+            }
+        } else if (gameState === 'READY' || gameState === 'PLAYING') {
+            flapBird();
+        } else if (gameState === 'GAMEOVER') {
+            if (isInside(pt, uiButtons.restartBtn)) {
+                audio.sfxClick();
+                resetGameToReady();
+            } else if (isInside(pt, uiButtons.menuBtn)) {
+                audio.sfxClick();
+                gameState = 'MENU';
+            }
+        } else if (gameState === 'VICTORY') {
+            if (isInside(pt, uiButtons.endlessBtn)) {
+                audio.sfxClick();
+                endlessMode = true;
+                gameState = 'PLAYING';
+                stageBannerText = 'ENDLESS OVERDRIVE ACTIVATED!';
+                stageBannerTimer = 140;
+                audio.startBgm();
+            } else if (isInside(pt, uiButtons.menuBtn)) {
+                audio.sfxClick();
+                gameState = 'MENU';
+            }
+        }
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        handlePointerInput(e.clientX, e.clientY);
+    });
+
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (e.touches.length > 0) {
+            handlePointerInput(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    }, { passive: false });
+
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+            e.preventDefault();
+            audio.init();
+            if (gameState === 'MENU') {
+                resetGameToReady();
+            } else if (gameState === 'READY' || gameState === 'PLAYING') {
+                flapBird();
+            } else if (gameState === 'GAMEOVER') {
+                resetGameToReady();
+            }
+        }
+    });
+
+    // =========================================================================
+    // 11. MAIN GAME LOOP
+    // =========================================================================
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // Start loop immediately on load
+    requestAnimationFrame(gameLoop);
+})();
+</script>
+</body>
+</html>
