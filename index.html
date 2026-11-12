@@ -97,13 +97,27 @@
     const ctx = canvas.getContext('2d');
 
     // Logical internal resolution (9:16 classic mobile/arcade aspect ratio, scales cleanly)
-    const LOGICAL_WIDTH = 450;
+    // Tinggi logis tetap (800), lebar logis mengikuti rasio layar user.
     const LOGICAL_HEIGHT = 800;
+    const MIN_LOGICAL_WIDTH = 340;
+    const MAX_LOGICAL_WIDTH = 1600;
+    let LOGICAL_WIDTH = 450;
+    let UI_W = 450;        // lebar kolom UI (menu, HUD, modal) - maksimal 450
+    let UI_OFFSET = 0;     // geser UI agar tetap di tengah pada layar lebar
+    let BIRD_X = 115;
+    let cityReady = false;
     let scaleRatio = 1;
 
     function resizeCanvas() {
         const windowW = window.innerWidth;
         const windowH = window.innerHeight;
+
+        // Lebar logis = tinggi logis x rasio layar user
+        const rawW = Math.round(LOGICAL_HEIGHT * windowW / windowH);
+        const newW = Math.max(MIN_LOGICAL_WIDTH, Math.min(MAX_LOGICAL_WIDTH, rawW));
+        const widthChanged = newW !== LOGICAL_WIDTH;
+        LOGICAL_WIDTH = newW;
+
         const targetAspect = LOGICAL_WIDTH / LOGICAL_HEIGHT;
         const windowAspect = windowW / windowH;
 
@@ -120,14 +134,23 @@
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         canvas.style.width = `${finalW}px`;
         canvas.style.height = `${finalH}px`;
-        canvas.width = LOGICAL_WIDTH * dpr;
-        canvas.height = LOGICAL_HEIGHT * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        canvas.width = Math.round(LOGICAL_WIDTH * dpr);
+        canvas.height = Math.round(LOGICAL_HEIGHT * dpr);
+        ctx.setTransform(canvas.width / LOGICAL_WIDTH, 0, 0, canvas.height / LOGICAL_HEIGHT, 0, 0);
         scaleRatio = finalW / LOGICAL_WIDTH;
+
+        UI_W = Math.min(450, LOGICAL_WIDTH);
+        UI_OFFSET = (LOGICAL_WIDTH - UI_W) / 2;
+        BIRD_X = Math.max(100, Math.min(190, Math.round(LOGICAL_WIDTH * 0.25)));
+        if (cityReady) {
+            bird.x = BIRD_X;
+            if (widthChanged) initCityscape();
+        }
     }
 
     window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
+    window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 120));
+    // resizeCanvas() pertama dipanggil setelah semua state dideklarasikan (lihat initCityscape di bawah)
 
     // =========================================================================
     // 2. PROCEDURAL WEB AUDIO API SOUND & SYNTH BGM ENGINE
@@ -327,6 +350,20 @@
     const PIPE_GAP_DEFAULT = 152;
     const WIN_STAGE_TARGET = 5; // Complete Stage 5 (Score >= 50) to trigger Victory!
 
+    // ---- PROGRESSIVE DIFFICULTY ----
+    // Awal: lambat, celah lebar, jarak antar pipa jauh.
+    // Makin jauh: makin cepat, celah makin sempit, jarak makin dekat (dibatasi agar tetap bisa dimainkan).
+    const DIFFICULTY_FULL_SCORE = 70;          // skor di mana kesulitan mencapai maksimum
+    const SPEED_START = 2.0,  SPEED_END = 4.3;
+    const GAP_START = 215,    GAP_END = 132;
+    const SPACING_START = 360, SPACING_END = 222;
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function getDifficulty() { return Math.min(1, score / DIFFICULTY_FULL_SCORE); }
+    function getBaseScrollSpeed(d) { return lerp(SPEED_START, SPEED_END, d); }
+    function getPipeGap(d) { return lerp(GAP_START, GAP_END, d); }
+    function getPipeSpacing(d) { return lerp(SPACING_START, SPACING_END, d); }
+
     // Bird Skin Configurations
     const BIRD_SKINS = [
         {
@@ -512,6 +549,7 @@
     let nextQuizScoreThreshold = 8; // First quiz triggers after 8 points, then every ~10 points
     let deathReason = 'NORMAL'; // 'NORMAL' or 'QUIZ_WRONG'
     let floorOffset = 0;
+    let nextPipeX = null; // posisi spawn pipa berikutnya (null = belum ditentukan)
 
     // Parallax Skyline Data
     const farBuildings = [];
@@ -557,7 +595,9 @@
             x += w + 8;
         }
     }
+    resizeCanvas();
     initCityscape();
+    cityReady = true;
 
     // UI Button Hitboxes (Calculated dynamically during draw)
     const uiButtons = {
@@ -588,7 +628,7 @@
         activeEffects.doubleScore = 0;
         activeEffects.gravityInvert = 0;
 
-        bird.x = 115;
+        bird.x = BIRD_X;
         bird.y = PLAYABLE_HEIGHT * 0.46;
         bird.vy = 0;
         bird.rotation = 0;
@@ -598,6 +638,7 @@
         bird.charred = false;
 
         pipes = [];
+        nextPipeX = null;
         collectibles = [];
         quizGates = [];
         particles = [];
@@ -785,40 +826,52 @@
     // =========================================================================
     // 6. SPAWNING PIPES, BUFFS, TRAPS & QUIZ GATES
     // =========================================================================
-    function spawnObstacleWave() {
+    function spawnObstacleWave(spawnX) {
         // Check if it's time to spawn an Interactive Quiz Gate!
         if (score >= nextQuizScoreThreshold && quizGates.length === 0 && quizWarningTimer === 0) {
             quizWarningTimer = 95; // ~1.5 seconds warning before gate arrives
             activeQuiz = QUIZ_BANK[Math.floor(Math.random() * QUIZ_BANK.length)];
             audio.sfxQuizWarning();
-            return;
+            return false;
         }
 
         // Do not spawn regular pipes while a quiz gate is approaching or active
-        if (quizWarningTimer > 0 || quizGates.length > 0) return;
+        if (quizWarningTimer > 0 || quizGates.length > 0) return false;
 
-        // Calculate dynamic difficulty based on stage
-        const gapSize = Math.max(126, PIPE_GAP_DEFAULT - (currentStage - 1) * 5);
+        // Progressive difficulty (0..1) berdasarkan skor
+        const d = getDifficulty();
+        const gapSize = getPipeGap(d);
+        const spacing = getPipeSpacing(d);
+        const speedNow = getBaseScrollSpeed(d);
         const minTop = 75;
         const maxTop = PLAYABLE_HEIGHT - gapSize - 75;
-        const gapTop = minTop + Math.random() * (maxTop - minTop);
+        let gapTop = minTop + Math.random() * (maxTop - minTop);
 
-        // Moving pipes appear from Stage 2+
-        const isMoving = currentStage >= 2 && Math.random() < Math.min(0.55, 0.18 * currentStage);
-        // EMP Laser Gate trap appears between pipe lips occasionally
-        const hasLaserTrap = currentStage >= 2 && !isMoving && Math.random() < 0.24;
+        // Batasi perbedaan tinggi celah antar pipa agar selalu bisa dijangkau
+        const prevPipe = pipes[pipes.length - 1];
+        if (prevPipe) {
+            const maxShift = Math.max(120, 3.2 * (spacing / speedNow));
+            gapTop = Math.max(prevPipe.gapTop - maxShift, Math.min(prevPipe.gapTop + maxShift, gapTop));
+            gapTop = Math.max(minTop, Math.min(maxTop, gapTop));
+        }
+
+        // Pipa bergerak & laser muncul bertahap, bukan langsung
+        const isMoving = d >= 0.17 && Math.random() < 0.10 + 0.30 * d;
+        const hasLaserTrap = d >= 0.25 && !isMoving && Math.random() < 0.08 + 0.14 * d;
 
         const newPipe = {
-            x: LOGICAL_WIDTH + 30,
+            x: spawnX,
             gapTop: gapTop,
             gapHeight: gapSize,
             passed: false,
             isMoving: isMoving,
             moveDir: Math.random() > 0.5 ? 1 : -1,
-            moveSpeed: 0.9 + Math.min(1.2, currentStage * 0.18),
+            moveSpeed: 0.55 + 0.75 * d,
             hasLaserTrap: hasLaserTrap,
+            laserSide: Math.random() > 0.5 ? 0 : 1, // 0 = laser dari atas, 1 = dari bawah (selalu ada sisi aman)
             laserTimer: Math.floor(Math.random() * 120) // Cycles on/off
         };
+        nextPipeX = spawnX + spacing;
         pipes.push(newPipe);
 
         // Chance to spawn a Hidden Buff inside the pipe gap or slightly past it
@@ -836,7 +889,7 @@
             });
         }
         // Or spawn a Gravity Glitch Anomaly Zone between pipes
-        else if (currentStage >= 2 && Math.random() < 0.22) {
+        else if (d >= 0.17 && Math.random() < 0.22) {
             collectibles.push({
                 kind: 'TRAP_GRAVITY',
                 type: 'GRAVITY_INVERT',
@@ -847,6 +900,7 @@
                 bobOffset: 0
             });
         }
+        return true;
     }
 
     function spawnQuizGate() {
@@ -944,7 +998,7 @@
             if (bird.electrocutedTimer > 0) {
                 bird.electrocutedTimer--;
                 // Jitter violently in mid-air while lasers zap the bird
-                bird.x = 115 + (Math.random() - 0.5) * 12;
+                bird.x = BIRD_X + (Math.random() - 0.5) * 12;
                 bird.y += (Math.random() - 0.5) * 10;
                 if (frameCount % 3 === 0) {
                     particles.push({
@@ -995,9 +1049,9 @@
         if (activeEffects.gravityInvert > 0) activeEffects.gravityInvert--;
 
         // Calculate current scroll speed (affected by stage & Chrono Slow buff)
-        const stageSpeedBonus = Math.min(1.6, (currentStage - 1) * 0.22);
+        const baseSpeed = getBaseScrollSpeed(getDifficulty());
         const slowFactor = activeEffects.slowMo > 0 ? 0.58 : 1.0;
-        const currentSpeed = (BASE_SCROLL_SPEED + stageSpeedBonus) * slowFactor;
+        const currentSpeed = baseSpeed * slowFactor;
 
         scrollBackground(currentSpeed);
 
@@ -1044,9 +1098,14 @@
         }
 
         // Spawn Pipes periodically
-        const spawnDistance = 235;
-        if (pipes.length === 0 || (LOGICAL_WIDTH + 30 - pipes[pipes.length - 1].x) >= spawnDistance) {
-            spawnObstacleWave();
+        if (nextPipeX !== null) nextPipeX -= currentSpeed;
+        for (let guard = 0; guard < 16; guard++) {
+            const edgeX = LOGICAL_WIDTH + 30;
+            if (nextPipeX === null) {
+                nextPipeX = (score === 0 && pipes.length === 0) ? Math.min(edgeX, BIRD_X + 460) : edgeX;
+            }
+            if (nextPipeX > edgeX) break;
+            if (!spawnObstacleWave(nextPipeX)) { nextPipeX = null; break; }
         }
 
         // Update Pipes & Check Collisions
@@ -1081,7 +1140,11 @@
 
                 // Check active EMP Laser beam across gap
                 const laserActive = p.hasLaserTrap && p.laserTimer >= 110;
-                const hitLaser = laserActive && Math.abs(bird.x - (p.x + PIPE_WIDTH / 2)) < hitRadius + 4;
+                const beamLen = p.gapHeight * 0.45;
+                const inBeamY = p.laserSide === 0
+                    ? (bird.y - hitRadius < p.gapTop + beamLen)
+                    : (bird.y + hitRadius > p.gapTop + p.gapHeight - beamLen);
+                const hitLaser = laserActive && inBeamY && Math.abs(bird.x - (p.x + PIPE_WIDTH / 2)) < hitRadius + 4;
 
                 if (hitTop || hitBottom || hitLaser) {
                     if (activeEffects.shield) {
@@ -1329,10 +1392,15 @@
 
         // 9. Active Buff/Trap Status Bars (Top Left/Right)
         if (gameState === 'PLAYING' || gameState === 'DYING_NORMAL' || gameState === 'DYING_QUIZ') {
+            ctx.save();
+            ctx.translate(UI_OFFSET, 0);
             drawHUD();
+            ctx.restore();
         }
 
         // 10. State Overlays (Menu, Ready, GameOver, Victory)
+        ctx.save();
+        ctx.translate(UI_OFFSET, 0);
         if (gameState === 'MENU') {
             drawMainMenu();
         } else if (gameState === 'READY') {
@@ -1342,6 +1410,7 @@
         } else if (gameState === 'VICTORY') {
             drawVictoryModal();
         }
+        ctx.restore();
 
         // Screen Flash Overlay
         if (screenFlashAlpha > 0) {
@@ -1357,7 +1426,8 @@
     function drawCyberSunAndStars(theme) {
         // Twinkling digital stars
         ctx.fillStyle = '#FFFFFF';
-        for (let i = 0; i < 24; i++) {
+        const starCount = Math.ceil(24 * LOGICAL_WIDTH / 450);
+        for (let i = 0; i < starCount; i++) {
             const sx = (i * 73 + frameCount * 0.05) % LOGICAL_WIDTH;
             const sy = (i * 41) % (PLAYABLE_HEIGHT * 0.45);
             const alpha = 0.3 + 0.5 * Math.sin(frameCount * 0.05 + i);
@@ -1452,6 +1522,9 @@
                 const centerX = p.x + PIPE_WIDTH / 2;
                 const active = p.laserTimer >= 110;
                 const warning = p.laserTimer >= 75 && p.laserTimer < 110;
+                const beamLen = p.gapHeight * 0.45;
+                const beamTop = p.laserSide === 0 ? topH : botY - beamLen;
+                const beamBot = p.laserSide === 0 ? topH + beamLen : botY;
 
                 // Emitter nodes on pipe lips
                 ctx.fillStyle = '#FF003C';
@@ -1464,8 +1537,8 @@
                     ctx.setLineDash([6, 6]);
                     ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.moveTo(centerX, topH);
-                    ctx.lineTo(centerX, botY);
+                    ctx.moveTo(centerX, beamTop);
+                    ctx.lineTo(centerX, beamBot);
                     ctx.stroke();
                     ctx.setLineDash([]);
                 } else if (active) {
@@ -1476,15 +1549,15 @@
                     ctx.strokeStyle = '#FF003C';
                     ctx.lineWidth = 8 + Math.sin(frameCount * 0.8) * 2;
                     ctx.beginPath();
-                    ctx.moveTo(centerX, topH);
-                    ctx.lineTo(centerX, botY);
+                    ctx.moveTo(centerX, beamTop);
+                    ctx.lineTo(centerX, beamBot);
                     ctx.stroke();
 
                     ctx.strokeStyle = '#FFFFFF';
                     ctx.lineWidth = 2.5;
                     ctx.beginPath();
-                    ctx.moveTo(centerX, topH);
-                    ctx.lineTo(centerX, botY);
+                    ctx.moveTo(centerX, beamTop);
+                    ctx.lineTo(centerX, beamBot);
                     ctx.stroke();
                     ctx.restore();
                 }
@@ -1643,7 +1716,7 @@
 
                 ctx.fillStyle = '#FFFFFF';
                 ctx.font = 'bold 13px "Orbitron", sans-serif';
-                ctx.fillText(slot.text, qg.x + qg.width / 2, midY + 14);
+                ctx.fillText(slot.text, qg.x + qg.width / 2, midY + 14, qg.width - 10);
             }
         }
     }
@@ -1876,7 +1949,7 @@
 
         // Big Classic Flappy Bird Center Score with Cyber Outline
         ctx.save();
-        ctx.translate(LOGICAL_WIDTH / 2, 68);
+        ctx.translate(UI_W / 2, 68);
         ctx.scale(scorePopScale, scorePopScale);
         ctx.font = 'bold 42px "Press Start 2P", monospace';
         ctx.textAlign = 'center';
@@ -1904,13 +1977,13 @@
         ctx.fillStyle = 'rgba(10, 14, 35, 0.78)';
         ctx.strokeStyle = '#FFE600';
         ctx.beginPath();
-        ctx.roundRect(LOGICAL_WIDTH - 134, 14, 120, 30, 8);
+        ctx.roundRect(UI_W - 134, 14, 120, 30, 8);
         ctx.fill();
         ctx.stroke();
 
         ctx.fillStyle = '#FFE600';
         ctx.textAlign = 'right';
-        ctx.fillText(`BEST: ${highScore}`, LOGICAL_WIDTH - 24, 33);
+        ctx.fillText(`BEST: ${highScore}`, UI_W - 24, 33);
 
         // Active Power-Up / Trap Status Indicators (Below Top Bar)
         let statusY = 56;
@@ -1945,13 +2018,13 @@
             ctx.fillStyle = 'rgba(5, 8, 22, 0.85)';
             ctx.strokeStyle = theme.accentNeon;
             ctx.lineWidth = 2;
-            ctx.fillRect(0, 118, LOGICAL_WIDTH, 36);
-            ctx.strokeRect(-2, 118, LOGICAL_WIDTH + 4, 36);
+            ctx.fillRect(-UI_OFFSET, 118, LOGICAL_WIDTH, 36);
+            ctx.strokeRect(-UI_OFFSET - 2, 118, LOGICAL_WIDTH + 4, 36);
 
             ctx.fillStyle = theme.accentNeon;
             ctx.font = 'bold 13px "Orbitron", sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(stageBannerText, LOGICAL_WIDTH / 2, 141);
+            ctx.fillText(stageBannerText, UI_W / 2, 141);
             ctx.restore();
         }
 
@@ -1962,35 +2035,35 @@
             ctx.strokeStyle = '#FFE600';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
-            ctx.roundRect(35, 115, LOGICAL_WIDTH - 70, 56, 10);
+            ctx.roundRect(35, 115, UI_W - 70, 56, 10);
             ctx.fill();
             ctx.stroke();
 
             ctx.fillStyle = '#FFFFFF';
             ctx.font = 'bold 13px "Press Start 2P", monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('! QUIZ GATE INCOMING !', LOGICAL_WIDTH / 2, 140);
+            ctx.fillText('! QUIZ GATE INCOMING !', UI_W / 2, 140, UI_W - 90);
             ctx.font = 'bold 11px "Orbitron", sans-serif';
             ctx.fillStyle = '#FFE600';
-            ctx.fillText('MASUK KE CELAH JAWABAN YANG BENAR!', LOGICAL_WIDTH / 2, 160);
+            ctx.fillText('MASUK KE CELAH JAWABAN YANG BENAR!', UI_W / 2, 160, UI_W - 90);
         } else if (activeQuiz && quizGates.length > 0) {
             // Top Question Display Box
             ctx.fillStyle = 'rgba(8, 12, 34, 0.92)';
             ctx.strokeStyle = '#00F5D4';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
-            ctx.roundRect(24, 104, LOGICAL_WIDTH - 48, 54, 12);
+            ctx.roundRect(24, 104, UI_W - 48, 54, 12);
             ctx.fill();
             ctx.stroke();
 
             ctx.fillStyle = '#00F5D4';
             ctx.font = 'bold 10px "Orbitron", sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('SECURITY VERIFICATION // PILIH JALUR BENAR:', LOGICAL_WIDTH / 2, 122);
+            ctx.fillText('SECURITY VERIFICATION // PILIH JALUR BENAR:', UI_W / 2, 122, UI_W - 64);
 
             ctx.fillStyle = '#FFE600';
             ctx.font = 'bold 15px "Press Start 2P", monospace';
-            ctx.fillText(activeQuiz.q, LOGICAL_WIDTH / 2, 146);
+            ctx.fillText(activeQuiz.q, UI_W / 2, 146, UI_W - 64);
         }
     }
 
@@ -2007,7 +2080,7 @@
     function drawMainMenu() {
         // Subtle dark backdrop tint
         ctx.fillStyle = 'rgba(5, 7, 20, 0.52)';
-        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+        ctx.fillRect(-UI_OFFSET, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
         const floatY = Math.sin(frameCount * 0.06) * 6;
 
@@ -2016,19 +2089,19 @@
         ctx.textAlign = 'center';
         ctx.font = 'bold 34px "Press Start 2P", monospace';
         ctx.fillStyle = '#FF2A6D';
-        ctx.fillText('CYBER', LOGICAL_WIDTH / 2 + 3, 125 + floatY + 3);
+        ctx.fillText('CYBER', UI_W / 2 + 3, 125 + floatY + 3);
         ctx.fillStyle = '#00F5D4';
-        ctx.fillText('CYBER', LOGICAL_WIDTH / 2, 125 + floatY);
+        ctx.fillText('CYBER', UI_W / 2, 125 + floatY);
 
         ctx.font = 'bold 30px "Press Start 2P", monospace';
         ctx.fillStyle = '#050510';
-        ctx.fillText('FLAPPY', LOGICAL_WIDTH / 2 + 3, 168 + floatY + 3);
+        ctx.fillText('FLAPPY', UI_W / 2 + 3, 168 + floatY + 3);
         ctx.fillStyle = '#FFE600';
-        ctx.fillText('FLAPPY', LOGICAL_WIDTH / 2, 168 + floatY);
+        ctx.fillText('FLAPPY', UI_W / 2, 168 + floatY);
 
         ctx.font = 'bold 11px "Orbitron", sans-serif';
         ctx.fillStyle = '#E0FBFC';
-        ctx.fillText('NEON OVERDRIVE EDITION // HIGH SCORE: ' + highScore, LOGICAL_WIDTH / 2, 198);
+        ctx.fillText('NEON OVERDRIVE EDITION // HIGH SCORE: ' + highScore, UI_W / 2, 198, UI_W - 20);
         ctx.restore();
 
         // Skin Selector Panel
@@ -2037,20 +2110,20 @@
         ctx.strokeStyle = '#00F5D4';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.roundRect(32, panelY, LOGICAL_WIDTH - 64, 112, 14);
+        ctx.roundRect(32, panelY, UI_W - 64, 112, 14);
         ctx.fill();
         ctx.stroke();
 
         ctx.fillStyle = '#00F5D4';
         ctx.font = 'bold 11px "Orbitron", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('PILIH UNIT CYBER BIRD', LOGICAL_WIDTH / 2, panelY + 22);
+        ctx.fillText('PILIH UNIT CYBER BIRD', UI_W / 2, panelY + 22);
 
         uiButtons.skinBtns = [];
-        const btnW = 112;
+        const btnW = Math.min(112, Math.floor((UI_W - 100) / 3));
         const btnH = 66;
         const gap = 12;
-        const startX = (LOGICAL_WIDTH - (btnW * 3 + gap * 2)) / 2;
+        const startX = (UI_W - (btnW * 3 + gap * 2)) / 2;
 
         BIRD_SKINS.forEach((s, idx) => {
             const bx = startX + idx * (btnW + gap);
@@ -2087,20 +2160,20 @@
         ctx.strokeStyle = '#FF2A6D';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.roundRect(32, guideY, LOGICAL_WIDTH - 64, 72, 12);
+        ctx.roundRect(32, guideY, UI_W - 64, 72, 12);
         ctx.fill();
         ctx.stroke();
 
         ctx.font = '10px "Orbitron", sans-serif';
         ctx.fillStyle = '#00F5D4';
-        ctx.fillText('BUFF: [S] Shield  [T] SlowMo  [M] Mini  [2X] Skor', LOGICAL_WIDTH / 2, guideY + 22);
+        ctx.fillText('BUFF: [S] Shield  [T] SlowMo  [M] Mini  [2X] Skor', UI_W / 2, guideY + 22, UI_W - 60);
         ctx.fillStyle = '#FF8FA3';
-        ctx.fillText('TRAP: Laser EMP & [!G!] Gravity Glitch', LOGICAL_WIDTH / 2, guideY + 41);
+        ctx.fillText('TRAP: Laser EMP & [!G!] Gravity Glitch', UI_W / 2, guideY + 41, UI_W - 60);
         ctx.fillStyle = '#FFE600';
-        ctx.fillText('QUIZ GATE: Terbang ke celah jawaban BENAR!', LOGICAL_WIDTH / 2, guideY + 60);
+        ctx.fillText('QUIZ GATE: Terbang ke celah jawaban BENAR!', UI_W / 2, guideY + 60, UI_W - 60);
 
         // START GAME Button
-        const startBtn = { x: 65, y: 638, w: LOGICAL_WIDTH - 130, h: 54 };
+        const startBtn = { x: 65, y: 638, w: UI_W - 130, h: 54 };
         uiButtons.startBtn = startBtn;
 
         const btnGrad = ctx.createLinearGradient(startBtn.x, startBtn.y, startBtn.x + startBtn.w, startBtn.y);
@@ -2117,10 +2190,10 @@
 
         ctx.fillStyle = '#050510';
         ctx.font = 'bold 16px "Press Start 2P", monospace';
-        ctx.fillText('START GAME', LOGICAL_WIDTH / 2, startBtn.y + 35);
+        ctx.fillText('START GAME', UI_W / 2, startBtn.y + 35);
 
         // Audio Toggle Button (Top Right)
-        const audioBtn = { x: LOGICAL_WIDTH - 115, y: 18, w: 98, h: 32 };
+        const audioBtn = { x: UI_W - 115, y: 18, w: 98, h: 32 };
         uiButtons.audioBtn = audioBtn;
         ctx.fillStyle = 'rgba(11, 16, 40, 0.9)';
         ctx.strokeStyle = audio.enabled ? '#39FF14' : '#FF2A6D';
@@ -2141,13 +2214,13 @@
 
         ctx.font = 'bold 26px "Press Start 2P", monospace';
         ctx.fillStyle = '#050510';
-        ctx.fillText('GET READY!', LOGICAL_WIDTH / 2 + 3, 215 + 3);
+        ctx.fillText('GET READY!', UI_W / 2 + 3, 215 + 3);
         ctx.fillStyle = '#00F5D4';
-        ctx.fillText('GET READY!', LOGICAL_WIDTH / 2, 215);
+        ctx.fillText('GET READY!', UI_W / 2, 215);
 
         // Animated Tap / Spacebar Icon Prompt
         const pulse = 1 + Math.sin(frameCount * 0.12) * 0.08;
-        ctx.translate(LOGICAL_WIDTH / 2, 465);
+        ctx.translate(UI_W / 2, 465);
         ctx.scale(pulse, pulse);
 
         ctx.fillStyle = 'rgba(10, 15, 35, 0.85)';
@@ -2166,12 +2239,12 @@
 
     function drawGameOverModal() {
         ctx.fillStyle = 'rgba(5, 6, 18, 0.72)';
-        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+        ctx.fillRect(-UI_OFFSET, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
         const isQuizDeath = deathReason === 'QUIZ_WRONG';
-        const boxW = 360;
+        const boxW = Math.min(360, UI_W - 24);
         const boxH = 380;
-        const bx = (LOGICAL_WIDTH - boxW) / 2;
+        const bx = (UI_W - boxW) / 2;
         const by = 185;
 
         // Card Container
@@ -2192,17 +2265,17 @@
         if (isQuizDeath) {
             ctx.fillStyle = '#FF003C';
             ctx.font = 'bold 18px "Press Start 2P", monospace';
-            ctx.fillText('SYSTEM TERMINATED', LOGICAL_WIDTH / 2, by + 46);
+            ctx.fillText('SYSTEM TERMINATED', UI_W / 2, by + 46, boxW - 24);
             ctx.fillStyle = '#FF8FA3';
             ctx.font = 'bold 11px "Orbitron", sans-serif';
-            ctx.fillText('JAWABAN SALAH // TEGANGAN TINGGI!', LOGICAL_WIDTH / 2, by + 72);
+            ctx.fillText('JAWABAN SALAH // TEGANGAN TINGGI!', UI_W / 2, by + 72);
         } else {
             ctx.fillStyle = '#FF2A6D';
             ctx.font = 'bold 24px "Press Start 2P", monospace';
-            ctx.fillText('GAME OVER', LOGICAL_WIDTH / 2, by + 48);
+            ctx.fillText('GAME OVER', UI_W / 2, by + 48);
             ctx.fillStyle = '#94A3B8';
             ctx.font = 'bold 11px "Orbitron", sans-serif';
-            ctx.fillText(`TERHENTI DI STAGE ${currentStage}`, LOGICAL_WIDTH / 2, by + 72);
+            ctx.fillText(`TERHENTI DI STAGE ${currentStage}`, UI_W / 2, by + 72);
         }
 
         // Medal Calculation (Authentic Flappy Bird Medal Tiers)
@@ -2270,7 +2343,7 @@
         ctx.fill();
         ctx.fillStyle = '#050510';
         ctx.font = 'bold 14px "Press Start 2P", monospace';
-        ctx.fillText('PLAY AGAIN', LOGICAL_WIDTH / 2, restartBtn.y + 31);
+        ctx.fillText('PLAY AGAIN', UI_W / 2, restartBtn.y + 31);
 
         // Main Menu Button
         ctx.fillStyle = '#1E293B';
@@ -2282,16 +2355,16 @@
         ctx.stroke();
         ctx.fillStyle = '#E2E8F0';
         ctx.font = 'bold 12px "Orbitron", sans-serif';
-        ctx.fillText('MAIN MENU', LOGICAL_WIDTH / 2, menuBtn.y + 27);
+        ctx.fillText('MAIN MENU', UI_W / 2, menuBtn.y + 27);
     }
 
     function drawVictoryModal() {
         ctx.fillStyle = 'rgba(5, 6, 18, 0.65)';
-        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+        ctx.fillRect(-UI_OFFSET, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
-        const boxW = 365;
+        const boxW = Math.min(365, UI_W - 24);
         const boxH = 360;
-        const bx = (LOGICAL_WIDTH - boxW) / 2;
+        const bx = (UI_W - boxW) / 2;
         const by = 195;
 
         ctx.fillStyle = '#0F172A';
@@ -2308,19 +2381,19 @@
         ctx.textAlign = 'center';
         ctx.fillStyle = '#FFE600';
         ctx.font = 'bold 22px "Press Start 2P", monospace';
-        ctx.fillText('SYSTEM CLEARED!', LOGICAL_WIDTH / 2, by + 50);
+        ctx.fillText('SYSTEM CLEARED!', UI_W / 2, by + 50, boxW - 24);
 
         ctx.fillStyle = '#00F5D4';
         ctx.font = 'bold 12px "Orbitron", sans-serif';
-        ctx.fillText('SEMUA 5 SEKTOR CYBER BERHASIL DITAKLUKKAN!', LOGICAL_WIDTH / 2, by + 80);
+        ctx.fillText('SEMUA 5 SEKTOR CYBER BERHASIL DITAKLUKKAN!', UI_W / 2, by + 80, boxW - 24);
 
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 28px "Press Start 2P", monospace';
-        ctx.fillText(`SCORE: ${score}`, LOGICAL_WIDTH / 2, by + 135);
+        ctx.fillText(`SCORE: ${score}`, UI_W / 2, by + 135);
 
         ctx.fillStyle = '#39FF14';
         ctx.font = 'bold 12px "Orbitron", sans-serif';
-        ctx.fillText(`HIGH SCORE: ${highScore}`, LOGICAL_WIDTH / 2, by + 165);
+        ctx.fillText(`HIGH SCORE: ${highScore}`, UI_W / 2, by + 165);
 
         // Endless Mode Button
         const endlessBtn = { x: bx + 28, y: by + 195, w: boxW - 56, h: 48 };
@@ -2334,7 +2407,7 @@
         ctx.fill();
         ctx.fillStyle = '#050510';
         ctx.font = 'bold 12px "Press Start 2P", monospace';
-        ctx.fillText('ENDLESS MODE', LOGICAL_WIDTH / 2, endlessBtn.y + 30);
+        ctx.fillText('ENDLESS MODE', UI_W / 2, endlessBtn.y + 30);
 
         ctx.fillStyle = '#1E293B';
         ctx.strokeStyle = '#00F5D4';
@@ -2345,7 +2418,7 @@
         ctx.stroke();
         ctx.fillStyle = '#00F5D4';
         ctx.font = 'bold 12px "Orbitron", sans-serif';
-        ctx.fillText('MAIN MENU', LOGICAL_WIDTH / 2, menuBtn.y + 27);
+        ctx.fillText('MAIN MENU', UI_W / 2, menuBtn.y + 27);
     }
 
     // =========================================================================
@@ -2366,6 +2439,7 @@
     function handlePointerInput(clientX, clientY) {
         audio.init();
         const pt = getLogicalCoords(clientX, clientY);
+        pt.x -= UI_OFFSET;
 
         if (gameState === 'MENU') {
             // Check Audio Toggle
@@ -2453,4 +2527,4 @@
 })();
 </script>
 </body>
-</html>
+    </html>
