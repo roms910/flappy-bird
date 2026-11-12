@@ -81,7 +81,8 @@
  * - Parallax Cyberpunk Skyline, Holograms, & Animated Circuit Floor
  * - 4 Hidden Buffs (Shield, Chrono Slow, Nano Shrink, 2x Data)
  * - 3 Hazards/Traps (EMP Laser Gate, Gravity Glitch Zone, Moving Cyber Pipes)
- * - Interactive Multi-Gate Quiz System with Unique "System Terminated" Electrocution Death
+ * - Procedural MATH GATE system (+ - x / , missing-number & two-step problems) with 5 difficulty tiers,
+ *   combo streak rewards, selectable operations and a "System Terminated" electrocution death + review
  * - Complete State Machine (Menu, Ready, Playing, Quiz Gate, Victory, Endless, GameOver)
  * - Procedural Retro-Cyber Web Audio API Synthesizer (SFX + Dynamic BGM)
  * ============================================================================
@@ -290,6 +291,29 @@
             this.playTone(540, 'sawtooth', 0.35, 0.2, 40, 0.32);
         }
 
+        sfxGateTick() {
+            this.playTone(1200, 'square', 0.04, 0.07);
+        }
+
+        sfxDecrypt() {
+            this.playNoise(0.18, 0.12, 3200);
+            for (let i = 0; i < 5; i++) {
+                this.playTone(700 + Math.random() * 900, 'square', 0.03, 0.05, null, i * 0.035);
+            }
+        }
+
+        sfxStreak(n) {
+            const base = 523.25 * Math.pow(1.0595, Math.min(n, 10));
+            [1, 1.25, 1.5, 2].forEach((m, i) => {
+                this.playTone(base * m, 'triangle', 0.14, 0.14, null, i * 0.06);
+            });
+        }
+
+        sfxWrongBuzz() {
+            this.playTone(120, 'sawtooth', 0.22, 0.2, 80);
+            this.playTone(95, 'square', 0.22, 0.14, 60, 0.12);
+        }
+
         sfxCrash() {
             this.playNoise(0.3, 0.3, 400);
             this.playTone(160, 'sawtooth', 0.28, 0.22, 42);
@@ -339,7 +363,7 @@
     const audio = new CyberAudioEngine();
 
     // =========================================================================
-    // 3. GAME CONSTANTS, STAGE THEMES, SKINS & QUIZ DATABASE
+    // 3. GAME CONSTANTS, STAGE THEMES & SKINS
     // =========================================================================
     const GRAVITY = 0.44;
     const FLAP_STRENGTH = -7.6;
@@ -473,24 +497,356 @@
         }
     ];
 
-    // Quiz Bank (Math, Computer/Cyber Logic, General Brain Teasers)
-    const QUIZ_BANK = [
-        { q: "12 + 19 = ?", options: ["29", "31", "33"], answer: 1 },
-        { q: "1 BYTE = ... BIT?", options: ["4", "8", "16"], answer: 1 },
-        { q: "BINARY DARI 5?", options: ["101", "110", "011"], answer: 0 },
-        { q: "15 x 4 = ?", options: ["45", "50", "60"], answer: 2 },
-        { q: "PORT DEFAULT HTTP?", options: ["21", "80", "443"], answer: 1 },
-        { q: "AKAR DARI 144?", options: ["11", "12", "14"], answer: 1 },
-        { q: "CPU ADALAH OTAK...", options: ["JARINGAN", "KOMPUTER", "MONITOR"], answer: 1 },
-        { q: "2 PANGKAT 6 = ?", options: ["32", "64", "128"], answer: 1 },
-        { q: "100 - 37 = ?", options: ["63", "73", "67"], answer: 0 },
-        { q: "WARNA RGB: R + G = ?", options: ["CYAN", "MAGENTA", "KUNING"], answer: 2 },
-        { q: "7 x 8 - 6 = ?", options: ["50", "56", "48"], answer: 0 },
-        { q: "RAM BERSIFAT...", options: ["PERMANEN", "VOLATILE", "OPTIK"], answer: 1 },
-        { q: "99 / 3 + 7 = ?", options: ["33", "40", "37"], answer: 1 },
-        { q: "HEXA 'F' = DESIMAL?", options: ["15", "16", "10"], answer: 0 },
-        { q: "3, 6, 12, 24, ...?", options: ["36", "48", "30"], answer: 1 }
+    // =========================================================================
+    // 3b. MATH ENGINE - soal hitungan dasar (+ - x /) dibuat otomatis & bertingkat
+    // =========================================================================
+    // Soal tidak lagi dari daftar tetap: setiap gerbang membuat soal baru yang
+    // selalu punya jawaban bilangan bulat >= 0. Tingkat kesulitan naik mengikuti
+    // jumlah gerbang yang berhasil dijawab pada permainan itu.
+    const MATH_OPS = {
+        add: { id: 'add', sym: '+', name: 'TAMBAH', color: '#39FF14' },
+        sub: { id: 'sub', sym: '-', name: 'KURANG', color: '#FF2A6D' },
+        mul: { id: 'mul', sym: '×', name: 'KALI', color: '#FFE600' },
+        div: { id: 'div', sym: '÷', name: 'BAGI', color: '#00F5D4' }
+    };
+    const MATH_OP_ORDER = ['add', 'sub', 'mul', 'div'];
+
+    // Tier berganti berdasarkan jumlah gerbang yang sudah dijawab benar
+    const MATH_TIERS = [
+        { name: 'WARM-UP',   color: '#39FF14', at: 0 },
+        { name: 'BASIC',     color: '#00F5D4', at: 1 },
+        { name: 'SKILL',     color: '#38B6FF', at: 2 },
+        { name: 'PRO',       color: '#FFE600', at: 4 },
+        { name: 'OVERCLOCK', color: '#FF2A6D', at: 6 }
     ];
+    const MATH_FIRST_GATE_SCORE = 6;   // gerbang pertama muncul di skor ini
+    const MATH_GATE_INTERVAL = 8;      // gerbang berikutnya setiap +8 skor
+    const SLOT_COLORS = ['#00F5D4', '#FF2A6D', '#FFE600', '#B388FF'];
+    const SLOT_LABELS = ['A', 'B', 'C', 'D'];
+
+    // Rentang angka per operasi & per tier (indeks = tier)
+    const MATH_RANGES = {
+        add: [
+            { a: [1, 9],     b: [1, 9] },
+            { a: [10, 49],   b: [3, 39] },
+            { a: [25, 99],   b: [12, 75] },
+            { a: [100, 450], b: [25, 299] },
+            { a: [200, 700], b: [75, 499] }
+        ],
+        sub: [
+            { a: [5, 18] },
+            { a: [20, 70] },
+            { a: [50, 150] },
+            { a: [150, 650] },
+            { a: [300, 999] }
+        ],
+        mul: [
+            { a: [2, 5],   b: [2, 5] },
+            { a: [2, 9],   b: [2, 9] },
+            { a: [3, 12],  b: [3, 12] },
+            { a: [11, 25], b: [3, 9] },
+            { a: [12, 35], b: [4, 12] }
+        ],
+        div: [
+            { d: [2, 5],  q: [2, 5] },
+            { d: [2, 9],  q: [2, 9] },
+            { d: [3, 12], q: [3, 12] },
+            { d: [2, 12], q: [10, 30] },
+            { d: [3, 15], q: [11, 40] }
+        ]
+    };
+
+    // ---- Pengaturan operasi yang aktif (disimpan di browser) ----
+    const mathSettings = { add: true, sub: true, mul: true, div: true };
+    try {
+        const savedOps = JSON.parse(localStorage.getItem('cyberFlappyMathOps') || 'null');
+        if (savedOps) {
+            MATH_OP_ORDER.forEach(id => {
+                if (typeof savedOps[id] === 'boolean') mathSettings[id] = savedOps[id];
+            });
+        }
+        if (!MATH_OP_ORDER.some(id => mathSettings[id])) mathSettings.add = true;
+    } catch (e) { /* localStorage tidak tersedia: pakai default */ }
+
+    let bestComboAll = 0;
+    try { bestComboAll = parseInt(localStorage.getItem('cyberFlappyBestCombo') || '0', 10) || 0; } catch (e) {}
+
+    // ---- Statistik matematika untuk satu permainan ----
+    const mathStats = {
+        solved: 0,
+        wrong: 0,
+        streak: 0,
+        bestStreak: 0,
+        perOp: { add: 0, sub: 0, mul: 0, div: 0 }
+    };
+    let mathHistory = [];      // soal terakhir, supaya tidak berulang
+    let lastMathResult = null; // hasil gerbang terakhir (untuk review saat kalah)
+
+    function resetMathStats() {
+        mathStats.solved = 0;
+        mathStats.wrong = 0;
+        mathStats.streak = 0;
+        mathStats.bestStreak = 0;
+        MATH_OP_ORDER.forEach(id => { mathStats.perOp[id] = 0; });
+        mathHistory = [];
+        lastMathResult = null;
+    }
+
+    function enabledMathOps() {
+        const list = MATH_OP_ORDER.filter(id => mathSettings[id]);
+        return list.length ? list : ['add'];
+    }
+
+    // Mengembalikan false jika toggle ditolak (minimal 1 operasi harus aktif)
+    function toggleMathOp(id) {
+        if (mathSettings[id] && enabledMathOps().length <= 1) return false;
+        mathSettings[id] = !mathSettings[id];
+        try { localStorage.setItem('cyberFlappyMathOps', JSON.stringify(mathSettings)); } catch (e) {}
+        return true;
+    }
+
+    function getMathTier() {
+        let tier = 0;
+        for (let i = 0; i < MATH_TIERS.length; i++) {
+            if (mathStats.solved >= MATH_TIERS[i].at) tier = i;
+        }
+        return tier;
+    }
+
+    // ---- Helper acak ----
+    function ri(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+    function shuffleArr(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+        }
+        return a;
+    }
+
+    // ---- Token soal (dipakai untuk menggambar persamaan berwarna) ----
+    const TOK = {
+        num: v => ({ t: String(v), k: 'num' }),
+        op: id => ({ t: MATH_OPS[id].sym, k: 'op', c: MATH_OPS[id].color, id: id }),
+        paren: s => ({ t: s, k: 'paren' }),
+        eq: () => ({ t: '=', k: 'eq' }),
+        q: () => ({ t: '?', k: 'q' })
+    };
+
+    function applyOp(id, x, y) {
+        switch (id) {
+            case 'add': return x + y;
+            case 'sub': return x - y;
+            case 'mul': return x * y;
+            case 'div': return y !== 0 ? x / y : NaN;
+        }
+        return NaN;
+    }
+
+    function isLowOp(id) { return id === 'add' || id === 'sub'; }
+
+    // Satu operasi dasar {a, b, r} - hasil selalu bulat & tidak negatif
+    function genBinary(opId, tier) {
+        const R = MATH_RANGES[opId][tier];
+        let a, b, r;
+        if (opId === 'add') {
+            a = ri(R.a[0], R.a[1]);
+            b = ri(R.b[0], R.b[1]);
+            r = a + b;
+        } else if (opId === 'sub') {
+            a = ri(R.a[0], R.a[1]);
+            b = ri(Math.max(2, Math.floor(a * 0.12)), Math.floor(a * 0.88));
+            r = a - b;
+        } else if (opId === 'mul') {
+            a = ri(R.a[0], R.a[1]);
+            b = ri(R.b[0], R.b[1]);
+            r = a * b;
+        } else {
+            b = ri(R.d[0], R.d[1]);
+            r = ri(R.q[0], R.q[1]);
+            a = b * r;
+        }
+        return { opId, a, b, r };
+    }
+
+    // Tipe 1: "a + b = ?"
+    function genStandard(opId, tier) {
+        const f = genBinary(opId, tier);
+        const traps = [];
+        if (opId !== 'add') traps.push(f.a + f.b);
+        if (opId !== 'sub') traps.push(Math.abs(f.a - f.b));
+        if (opId !== 'mul') traps.push(f.a * f.b);
+        if (opId !== 'div' && f.b !== 0 && f.a % f.b === 0) traps.push(f.a / f.b);
+        if (opId === 'add' || opId === 'sub') traps.push(f.r + 10, f.r - 10); // salah simpan/pinjam
+        return {
+            kind: 'STANDARD',
+            kindLabel: 'HITUNG',
+            tokens: [TOK.num(f.a), TOK.op(opId), TOK.num(f.b), TOK.eq(), TOK.q()],
+            value: f.r,
+            ops: [opId],
+            traps: traps
+        };
+    }
+
+    // Tipe 2: "? + 7 = 15" atau "20 - ? = 8"
+    function genMissing(opId, tier) {
+        const f = genBinary(opId, tier);
+        const hideFirst = Math.random() < 0.5;
+        let tokens, value, known;
+        if (hideFirst) {
+            tokens = [TOK.q(), TOK.op(opId), TOK.num(f.b), TOK.eq(), TOK.num(f.r)];
+            value = f.a; known = f.b;
+        } else {
+            tokens = [TOK.num(f.a), TOK.op(opId), TOK.q(), TOK.eq(), TOK.num(f.r)];
+            value = f.b; known = f.a;
+        }
+        const traps = [known + f.r, Math.abs(known - f.r), known * f.r];
+        if (known !== 0 && f.r % known === 0) traps.push(f.r / known);
+        return {
+            kind: 'MISSING',
+            kindLabel: 'ANGKA HILANG',
+            tokens: tokens,
+            value: value,
+            ops: [opId],
+            traps: traps
+        };
+    }
+
+    // Tipe 3: dua langkah, mis. "6 x 4 + 5 = ?" atau "(8 + 4) x 3 = ?"
+    // Aturan urutan operasi dihormati: kurung hanya dipakai bila perlu.
+    function genChain(tier, ops) {
+        const sub = Math.max(0, tier - 1);
+        const smallMax = tier >= 3 ? 60 : 25;
+        const mulMax = tier >= 3 ? 9 : 5;
+
+        for (let tries = 0; tries < 50; tries++) {
+            const op1 = pick(ops);
+            const op2 = pick(ops);
+            const f = genBinary(op1, sub);
+            const v1 = f.r;
+            let c, v2;
+
+            if (op2 === 'add') {
+                c = ri(2, smallMax);
+                v2 = v1 + c;
+            } else if (op2 === 'sub') {
+                if (v1 < 4) continue;
+                c = ri(2, Math.min(v1 - 1, smallMax));
+                v2 = v1 - c;
+            } else if (op2 === 'mul') {
+                c = ri(2, mulMax);
+                v2 = v1 * c;
+            } else {
+                const divisors = [];
+                for (let d = 2; d <= 12; d++) if (v1 % d === 0) divisors.push(d);
+                if (!divisors.length) continue;
+                c = pick(divisors);
+                v2 = v1 / c;
+            }
+            if (!Number.isInteger(v2) || v2 < 0 || v2 > 999) continue;
+
+            const needParens = isLowOp(op1) && !isLowOp(op2);
+            let tokens;
+            if (needParens) {
+                tokens = [TOK.paren('('), TOK.num(f.a), TOK.op(op1), TOK.num(f.b), TOK.paren(')'),
+                          TOK.op(op2), TOK.num(c)];
+            } else if (op2 === 'add' && !isLowOp(op1) && Math.random() < 0.5) {
+                // c + a x b  (perkalian/pembagian tetap dihitung duluan)
+                tokens = [TOK.num(c), TOK.op('add'), TOK.num(f.a), TOK.op(op1), TOK.num(f.b)];
+            } else {
+                tokens = [TOK.num(f.a), TOK.op(op1), TOK.num(f.b), TOK.op(op2), TOK.num(c)];
+            }
+            tokens.push(TOK.eq(), TOK.q());
+
+            // Jebakan: kesalahan urutan operasi & lupa langkah terakhir
+            const traps = [v1, c];
+            const wrongOrder = applyOp(op1, f.a, applyOp(op2, f.b, c));
+            if (Number.isInteger(wrongOrder)) traps.push(wrongOrder);
+            traps.push(v2 + 10, v2 - 10);
+
+            return {
+                kind: 'CHAIN',
+                kindLabel: 'DUA LANGKAH',
+                tokens: tokens,
+                value: v2,
+                ops: op1 === op2 ? [op1] : [op1, op2],
+                traps: traps
+            };
+        }
+        return null;
+    }
+
+    // Membuat pilihan jawaban: 1 benar + pengecoh yang masuk akal
+    function buildMathOptions(p, slotCount) {
+        const ans = p.value;
+        const pool = new Map();
+        const maxPlausible = Math.max(ans * 4, ans + 40);
+        const addCand = (v, w) => {
+            if (!Number.isFinite(v)) return;
+            v = Math.round(v);
+            if (v < 0 || v === ans || v > maxPlausible) return;
+            pool.set(v, Math.max(pool.get(v) || 0, w + Math.random()));
+        };
+
+        (p.traps || []).forEach(v => addCand(v, 6));
+        [1, 2, 3, 10].forEach(d => { addCand(ans + d, 3); addCand(ans - d, 3); });
+        if (ans >= 20) { addCand(ans + 20, 2); addCand(ans - 20, 2); }
+        const digits = String(ans);
+        if (digits.length >= 2) addCand(parseInt(digits[1] + digits[0] + digits.slice(2), 10), 4.5);
+
+        const ranked = Array.from(pool.entries()).sort((x, y) => y[1] - x[1]).map(e => e[0]);
+        const wrong = ranked.slice(0, slotCount - 1);
+        let k = 4;
+        while (wrong.length < slotCount - 1) {
+            const v = ans + (Math.random() < 0.5 ? -k : k);
+            if (v >= 0 && v !== ans && wrong.indexOf(v) === -1) wrong.push(v);
+            k++;
+        }
+        const options = shuffleArr([ans].concat(wrong));
+        return { options: options.map(String), correctIndex: options.indexOf(ans) };
+    }
+
+    function tokensToText(tokens, solvedValue) {
+        return tokens.map(t => (t.k === 'q' && solvedValue !== undefined) ? String(solvedValue) : t.t).join(' ');
+    }
+
+    // Titik masuk: membuat satu soal lengkap sesuai tier & operasi yang dipilih
+    function generateMathProblem() {
+        const tier = getMathTier();
+        const ops = enabledMathOps();
+        const pChain = [0, 0, 0.30, 0.40, 0.50][tier];
+        const pMissing = [0, 0.25, 0.25, 0.25, 0.25][tier];
+
+        let p = null;
+        for (let attempt = 0; attempt < 14; attempt++) {
+            const roll = Math.random();
+            let cand = null;
+            if (roll < pChain) cand = genChain(tier, ops);
+            else if (roll < pChain + pMissing) cand = genMissing(pick(ops), tier);
+            else cand = genStandard(pick(ops), tier);
+            if (!cand) continue;
+            cand.text = tokensToText(cand.tokens);
+            p = cand;
+            if (mathHistory.indexOf(cand.text) === -1) break;
+        }
+        if (!p) {
+            p = genStandard(pick(ops), tier);
+            p.text = tokensToText(p.tokens);
+        }
+
+        const slotCount = tier >= 3 ? 4 : 3;
+        const built = buildMathOptions(p, slotCount);
+        p.options = built.options;
+        p.correctIndex = built.correctIndex;
+        p.tier = tier;
+        p.tierInfo = MATH_TIERS[tier];
+        p.solvedText = tokensToText(p.tokens, p.value);
+
+        mathHistory.push(p.text);
+        if (mathHistory.length > 8) mathHistory.shift();
+        return p;
+    }
 
     // =========================================================================
     // 4. GAME STATE VARIABLES
@@ -544,9 +900,21 @@
     let particles = [];
     let floatingTexts = [];
     let fireworks = [];
-    let activeQuiz = null;
+    let activeQuiz = null;        // soal matematika yang sedang aktif
     let quizWarningTimer = 0;
-    let nextQuizScoreThreshold = 8; // First quiz triggers after 8 points, then every ~10 points
+    let quizWarningMax = 130;
+    let nextQuizScoreThreshold = MATH_FIRST_GATE_SCORE;
+    const menuNotice = { text: '', timer: 0 };
+
+    function tryToggleMathOp(id) {
+        if (toggleMathOp(id)) {
+            audio.sfxClick();
+        } else {
+            audio.sfxWrongBuzz();
+            menuNotice.text = 'MINIMAL 1 OPERASI HARUS AKTIF!';
+            menuNotice.timer = 100;
+        }
+    }
     let deathReason = 'NORMAL'; // 'NORMAL' or 'QUIZ_WRONG'
     let floorOffset = 0;
     let nextPipeX = null; // posisi spawn pipa berikutnya (null = belum ditentukan)
@@ -604,6 +972,7 @@
         startBtn: { x: 0, y: 0, w: 0, h: 0 },
         audioBtn: { x: 0, y: 0, w: 0, h: 0 },
         skinBtns: [],
+        opBtns: [],
         restartBtn: { x: 0, y: 0, w: 0, h: 0 },
         menuBtn: { x: 0, y: 0, w: 0, h: 0 },
         endlessBtn: { x: 0, y: 0, w: 0, h: 0 }
@@ -617,9 +986,11 @@
         isNewHighScore = false;
         currentStage = 1;
         endlessMode = false;
-        nextQuizScoreThreshold = 8;
+        nextQuizScoreThreshold = MATH_FIRST_GATE_SCORE;
         quizWarningTimer = 0;
+        quizWarningMax = 130;
         activeQuiz = null;
+        resetMathStats();
         deathReason = 'NORMAL';
 
         activeEffects.shield = false;
@@ -824,19 +1195,17 @@
     }
 
     // =========================================================================
-    // 6. SPAWNING PIPES, BUFFS, TRAPS & QUIZ GATES
+    // 6. SPAWNING PIPES, BUFFS, TRAPS & MATH GATES
     // =========================================================================
     function spawnObstacleWave(spawnX) {
         // Check if it's time to spawn an Interactive Quiz Gate!
         if (score >= nextQuizScoreThreshold && quizGates.length === 0 && quizWarningTimer === 0) {
-            quizWarningTimer = 95; // ~1.5 seconds warning before gate arrives
-            activeQuiz = QUIZ_BANK[Math.floor(Math.random() * QUIZ_BANK.length)];
-            audio.sfxQuizWarning();
+            beginMathWarning();
             return false;
         }
 
-        // Do not spawn regular pipes while a quiz gate is approaching or active
-        if (quizWarningTimer > 0 || quizGates.length > 0) return false;
+        // Pipa biasa berhenti selama soal sedang didekripsi / gerbang belum dijawab
+        if (quizWarningTimer > 0 || quizGates.some(g => !g.resolved)) return false;
 
         // Progressive difficulty (0..1) berdasarkan skor
         const d = getDifficulty();
@@ -903,11 +1272,23 @@
         return true;
     }
 
+    function beginMathWarning() {
+        activeQuiz = generateMathProblem();
+        quizWarningMax = 130; // ~2 detik: soal sudah terbaca sebelum gerbang muncul
+        quizWarningTimer = quizWarningMax;
+        audio.sfxQuizWarning();
+        audio.sfxDecrypt();
+        screenFlashColor = activeQuiz.tierInfo.color;
+        screenFlashAlpha = 0.18;
+    }
+
     function spawnQuizGate() {
-        if (!activeQuiz) return;
-        // 3 Vertical Answer Slots (A, B, C) spanning the playable height
-        const slotCount = 3;
-        const barrierHeight = 26;
+        const prob = activeQuiz;
+        if (!prob) return;
+
+        // 3 slot (A-C) pada awal, 4 slot (A-D) mulai tier PRO
+        const slotCount = prob.options.length;
+        const barrierHeight = slotCount === 4 ? 20 : 26;
         const usableHeight = PLAYABLE_HEIGHT - barrierHeight * (slotCount + 1);
         const slotHeight = usableHeight / slotCount;
 
@@ -916,21 +1297,168 @@
             const topY = barrierHeight + i * (slotHeight + barrierHeight);
             slots.push({
                 index: i,
-                label: ['A', 'B', 'C'][i],
-                text: activeQuiz.options[i],
+                label: SLOT_LABELS[i],
+                text: prob.options[i],
+                color: SLOT_COLORS[i],
                 topY: topY,
                 bottomY: topY + slotHeight,
-                isCorrect: i === activeQuiz.answer
+                isCorrect: i === prob.correctIndex
             });
         }
 
+        // Pada layar sangat lebar gerbang muncul lebih dekat (dengan efek "materialize")
+        const spawnX = Math.min(LOGICAL_WIDTH + 40, BIRD_X + 760);
+        const baseSpeed = getBaseScrollSpeed(getDifficulty());
+        const speedMul = Math.min(2.4, Math.max(0.88, (spawnX - BIRD_X) / (200 * baseSpeed)));
+
         quizGates.push({
-            x: LOGICAL_WIDTH + 40,
-            width: 68,
+            x: spawnX,
+            width: 76,
             barrierHeight: barrierHeight,
             slots: slots,
-            resolved: false
+            problem: prob,
+            resolved: false,
+            result: null,        // 'CORRECT' | 'WRONG' | 'SAVED'
+            chosenIndex: -1,
+            hoverSlot: -1,
+            flash: 0,
+            age: 0,
+            appear: spawnX < LOGICAL_WIDTH ? 0 : 1,
+            speedMul: speedMul,
+            spawnDist: Math.max(1, spawnX - BIRD_X),
+            bobAmp: prob.tier >= 2 ? Math.min(16, 6 + (prob.tier - 2) * 5) : 0,
+            bobPhase: Math.random() * Math.PI * 2,
+            offsetY: 0
         });
+    }
+
+    // Slot yang sedang dilewati burung (-1 bila mengenai pembatas)
+    function findGateSlot(qg, y, margin) {
+        const yy = y - qg.offsetY;
+        for (const s of qg.slots) {
+            if (yy >= s.topY + margin && yy <= s.bottomY - margin) return s.index;
+        }
+        return -1;
+    }
+
+    // Partikel data kecil yang mengalir dari gerbang
+    function emitGateParticles(qg) {
+        if (frameCount % 5 !== 0 || qg.x > LOGICAL_WIDTH + 20) return;
+        const slot = pick(qg.slots);
+        particles.push({
+            x: qg.x + Math.random() * qg.width,
+            y: slot.topY + Math.random() * (slot.bottomY - slot.topY) + qg.offsetY,
+            vx: -0.4 - Math.random() * 0.8,
+            vy: (Math.random() - 0.5) * 1.2,
+            size: 2 + Math.random() * 1.5,
+            color: slot.color,
+            alpha: 0.9,
+            decay: 0.03
+        });
+    }
+
+    function resolveMathCorrect(qg, slot) {
+        qg.resolved = true;
+        qg.result = 'CORRECT';
+        qg.chosenIndex = slot.index;
+        qg.flash = 70;
+
+        mathStats.solved++;
+        mathStats.streak++;
+        mathStats.bestStreak = Math.max(mathStats.bestStreak, mathStats.streak);
+        qg.problem.ops.forEach(id => { mathStats.perOp[id]++; });
+        lastMathResult = { problem: qg.problem, chosenText: slot.text, correct: true };
+
+        if (mathStats.bestStreak > bestComboAll) {
+            bestComboAll = mathStats.bestStreak;
+            try { localStorage.setItem('cyberFlappyBestCombo', String(bestComboAll)); } catch (e) {}
+        }
+
+        audio.sfxQuizCorrect();
+        if (mathStats.streak >= 2) audio.sfxStreak(mathStats.streak);
+        screenFlashColor = '#39FF14';
+        screenFlashAlpha = 0.4;
+        floatingTexts.push({
+            x: bird.x + 20, y: bird.y - 34,
+            text: 'ACCESS GRANTED!', color: '#39FF14', alpha: 1, vy: -1.4
+        });
+        for (let k = 0; k < 30; k++) {
+            particles.push({
+                x: bird.x, y: bird.y,
+                vx: (Math.random() - 0.5) * 8,
+                vy: (Math.random() - 0.5) * 8,
+                size: 3.5, color: k % 3 === 0 ? slot.color : '#39FF14', alpha: 1, decay: 0.03
+            });
+        }
+
+        // Hadiah combo
+        let comboText = null;
+        if (mathStats.streak === 3 && !activeEffects.shield) {
+            activeEffects.shield = true;
+            comboText = 'COMBO x3: SHIELD!';
+        } else if (mathStats.streak === 5) {
+            activeEffects.doubleScore = 420;
+            comboText = 'COMBO x5: 2X BOOST!';
+        } else if (mathStats.streak >= 7 && mathStats.streak % 2 === 1) {
+            activeEffects.slowMo = 300;
+            comboText = 'COMBO x' + mathStats.streak + ': CHRONO!';
+        }
+        if (comboText) {
+            floatingTexts.push({
+                x: bird.x + 30, y: bird.y - 74,
+                text: comboText, color: '#FFE600', alpha: 1, vy: -1.2
+            });
+        }
+
+        // Poin bonus: 4 dasar + 1 per streak (maks +4)
+        const bonus = 4 + Math.min(mathStats.streak - 1, 4);
+        addScore(bonus, bird.x, bird.y - 54);
+        nextQuizScoreThreshold = score + MATH_GATE_INTERVAL;
+    }
+
+    // Mengembalikan true bila burung selamat (dilindungi shield)
+    function resolveMathWrong(qg, slot) {
+        qg.resolved = true;
+        qg.result = 'WRONG';
+        qg.chosenIndex = slot ? slot.index : -1;
+        qg.flash = 90;
+
+        mathStats.wrong++;
+        mathStats.streak = 0;
+        lastMathResult = {
+            problem: qg.problem,
+            chosenText: slot ? slot.text : '-',
+            correct: false,
+            hitDivider: !slot
+        };
+        nextQuizScoreThreshold = score + MATH_GATE_INTERVAL;
+
+        if (activeEffects.shield) {
+            activeEffects.shield = false;
+            qg.result = 'SAVED';
+            audio.sfxShieldBreak();
+            audio.sfxWrongBuzz();
+            triggerScreenShake(10, 16);
+            screenFlashColor = '#00F5D4';
+            screenFlashAlpha = 0.45;
+            bird.vy = -6;
+            floatingTexts.push({
+                x: bird.x, y: bird.y - 30,
+                text: 'SHIELD ABSORBED ERROR!', color: '#00F5D4', alpha: 1, vy: -1.6
+            });
+            for (let k = 0; k < 20; k++) {
+                const ang = (Math.PI * 2 * k) / 20;
+                particles.push({
+                    x: bird.x, y: bird.y,
+                    vx: Math.cos(ang) * 4, vy: Math.sin(ang) * 4,
+                    size: 3, color: '#00F5D4', alpha: 1, decay: 0.035
+                });
+            }
+            return true;
+        }
+
+        triggerQuizWrongDeath();
+        return false;
     }
 
     // =========================================================================
@@ -944,6 +1472,7 @@
         if (shakeTimer > 0) shakeTimer--;
         if (stageBannerTimer > 0) stageBannerTimer--;
         if (scorePopScale > 1) scorePopScale = Math.max(1, scorePopScale - 0.04);
+        if (menuNotice.timer > 0) menuNotice.timer--;
 
         // Update particles
         for (let i = particles.length - 1; i >= 0; i--) {
@@ -1092,6 +1621,7 @@
         // Quiz Warning Countdown -> Spawn Quiz Gate
         if (quizWarningTimer > 0) {
             quizWarningTimer--;
+            if (quizWarningTimer > 0 && quizWarningTimer % 32 === 0) audio.sfxGateTick();
             if (quizWarningTimer === 0) {
                 spawnQuizGate();
             }
@@ -1194,59 +1724,39 @@
             if (c.x < -50) collectibles.splice(i, 1);
         }
 
-        // Update Interactive Quiz Gates
+        // Update Math Gates
         for (let i = quizGates.length - 1; i >= 0; i--) {
             const qg = quizGates[i];
-            qg.x -= currentSpeed * 0.88; // Slightly slower so player has time to read & aim
+            qg.age++;
+            qg.x -= currentSpeed * qg.speedMul;
+            qg.offsetY = qg.bobAmp ? Math.sin(frameCount * 0.045 + qg.bobPhase) * qg.bobAmp : 0;
+            if (qg.appear < 1) qg.appear = Math.min(1, qg.appear + 0.04);
+            if (qg.flash > 0) {
+                qg.flash--;
+                if (qg.flash === 0 && activeQuiz === qg.problem) activeQuiz = null;
+            }
 
-            // Check if bird enters the quiz gate X-zone
-            if (!qg.resolved && bird.x + hitRadius > qg.x && bird.x - hitRadius < qg.x + qg.width) {
-                // Find which slot the bird is flying through
-                let matchedSlot = null;
-                for (const slot of qg.slots) {
-                    if (bird.y >= slot.topY + 4 && bird.y <= slot.bottomY - 4) {
-                        matchedSlot = slot;
-                        break;
-                    }
-                }
+            if (!qg.resolved) {
+                qg.hoverSlot = findGateSlot(qg, bird.y, 0);
+                emitGateParticles(qg);
 
-                // If bird hits divider beam or wrong answer slot -> Dramatic Quiz Death!
-                if (!matchedSlot || !matchedSlot.isCorrect) {
-                    qg.resolved = true;
-                    triggerQuizWrongDeath();
-                    return;
-                } else {
-                    // CORRECT ANSWER!
-                    qg.resolved = true;
-                    audio.sfxQuizCorrect();
-                    screenFlashColor = '#39FF14';
-                    screenFlashAlpha = 0.45;
-                    floatingTexts.push({
-                        x: bird.x + 20,
-                        y: bird.y - 30,
-                        text: 'ACCESS GRANTED! +5',
-                        color: '#39FF14',
-                        alpha: 1,
-                        vy: -1.5
-                    });
-                    // Burst of green data particles
-                    for (let k = 0; k < 24; k++) {
-                        particles.push({
-                            x: bird.x, y: bird.y,
-                            vx: (Math.random() - 0.5) * 7,
-                            vy: (Math.random() - 0.5) * 7,
-                            size: 3.5, color: '#39FF14', alpha: 1, decay: 0.03
-                        });
+                // Burung masuk ke zona gerbang: jawaban dinilai saat ini
+                if (bird.x + hitRadius > qg.x && bird.x - hitRadius < qg.x + qg.width) {
+                    const idx = findGateSlot(qg, bird.y, 4);
+                    const slot = idx >= 0 ? qg.slots[idx] : null;
+                    if (slot && slot.isCorrect) {
+                        resolveMathCorrect(qg, slot);
+                        if (gameState !== 'PLAYING') return; // kemenangan dipicu oleh poin
+                    } else {
+                        const survived = resolveMathWrong(qg, slot);
+                        if (!survived) return;
                     }
-                    nextQuizScoreThreshold = score + 12;
-                    activeQuiz = null;
-                    addScore(5, bird.x, bird.y - 50);
                 }
             }
 
             if (qg.x + qg.width < -60) {
+                if (activeQuiz === qg.problem) activeQuiz = null;
                 quizGates.splice(i, 1);
-                activeQuiz = null;
             }
         }
     }
@@ -1378,7 +1888,8 @@
         // 4. Draw Cyber Pipes
         drawPipes(theme);
 
-        // 5. Draw Interactive Quiz Gates
+        // 5. Draw Math Panel + Interactive Math Gates
+        drawMathPanel();
         drawQuizGates();
 
         // 6. Draw Animated Cyber Circuit Floor
@@ -1386,6 +1897,7 @@
 
         // 7. Draw Bird Trail & Iconic Cyber Flappy Bird
         drawBird();
+        drawAnswerPreview();
 
         // 8. Draw Particles & Floating Texts
         drawParticlesAndTexts();
@@ -1685,40 +2197,452 @@
         }
     }
 
-    function drawQuizGates() {
-        for (const qg of quizGates) {
-            // Draw top & bottom divider laser beams
-            ctx.fillStyle = '#1E1B4B';
-            ctx.strokeStyle = '#00F5D4';
-            ctx.lineWidth = 2;
+    // ---- Menggambar persamaan berwarna dari token soal ----
+    // opts.revealCount : jumlah token yang sudah "didekripsi" (sisanya acak)
+    // opts.solvedValue : bila ada, tanda ? diganti jawaban berwarna hijau
+    function drawEquation(tokens, cx, baseY, maxW, fontPx, opts) {
+        opts = opts || {};
+        const reveal = opts.revealCount === undefined ? tokens.length : opts.revealCount;
+        const solvedValue = opts.solvedValue;
+        const scramble = '#%&@$01<>';
 
-            // Top cap
-            ctx.fillRect(qg.x, 0, qg.width, qg.barrierHeight);
-            ctx.strokeRect(qg.x, 0, qg.width, qg.barrierHeight);
-
-            for (const slot of qg.slots) {
-                // Draw divider bar below each slot
-                ctx.fillStyle = '#1E1B4B';
-                ctx.fillRect(qg.x, slot.bottomY, qg.width, qg.barrierHeight);
-                ctx.strokeStyle = '#FF2A6D';
-                ctx.strokeRect(qg.x, slot.bottomY, qg.width, qg.barrierHeight);
-
-                // Draw holographic answer field inside the slot
-                const midY = (slot.topY + slot.bottomY) / 2;
-                ctx.fillStyle = 'rgba(0, 245, 212, 0.12)';
-                ctx.fillRect(qg.x + 4, slot.topY + 2, qg.width - 8, slot.bottomY - slot.topY - 4);
-
-                // Option Badge (A / B / C) + Answer Value
-                ctx.fillStyle = '#FFE600';
-                ctx.font = 'bold 13px "Press Start 2P", monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText(slot.label, qg.x + qg.width / 2, midY - 8);
-
-                ctx.fillStyle = '#FFFFFF';
-                ctx.font = 'bold 13px "Orbitron", sans-serif';
-                ctx.fillText(slot.text, qg.x + qg.width / 2, midY + 14, qg.width - 10);
+        const disp = tokens.map((tk, i) => {
+            if (i >= reveal) {
+                let s = '';
+                for (let c = 0; c < tk.t.length; c++) {
+                    s += scramble[(Math.floor(frameCount / 2) + i * 7 + c * 3) % scramble.length];
+                }
+                return s;
             }
+            if (tk.k === 'q' && solvedValue !== undefined) return String(solvedValue);
+            return tk.t;
+        });
+
+        const gapOf = (i) => {
+            if (i === 0) return 0;
+            const prev = tokens[i - 1], cur = tokens[i];
+            if ((prev.k === 'paren' && prev.t === '(') || (cur.k === 'paren' && cur.t === ')')) return 0.15;
+            return 0.7;
+        };
+        const fontOf = (s) => 'bold ' + s + 'px "Press Start 2P", monospace';
+        const measure = (s) => {
+            ctx.font = fontOf(s);
+            let total = 0;
+            disp.forEach((d, i) => { total += ctx.measureText(d).width + gapOf(i) * s; });
+            return total;
+        };
+
+        ctx.save();
+        let size = fontPx;
+        let total = measure(size);
+        if (total > maxW) {
+            size = Math.max(9, size * maxW / total);
+            total = measure(size);
         }
+        ctx.font = fontOf(size);
+        ctx.textAlign = 'left';
+
+        let x = cx - total / 2;
+        const pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.2);
+        disp.forEach((d, i) => {
+            x += gapOf(i) * size;
+            const tk = tokens[i];
+            const w = ctx.measureText(d).width;
+            let color = '#E0FBFC';
+            let glow = 0;
+            if (i >= reveal) {
+                color = '#475569';
+            } else if (tk.k === 'op') {
+                color = tk.c; glow = 10;
+            } else if (tk.k === 'paren') {
+                color = '#94A3B8';
+            } else if (tk.k === 'eq') {
+                color = '#CBD5E1';
+            } else if (tk.k === 'q') {
+                if (solvedValue !== undefined) {
+                    color = '#39FF14'; glow = 12;
+                } else {
+                    color = pulse > 0.5 ? '#FFE600' : '#00F5D4';
+                    glow = 12;
+                    ctx.fillStyle = 'rgba(255, 230, 0, ' + (0.08 + 0.10 * pulse) + ')';
+                    ctx.fillRect(x - 4, baseY - size - 3, w + 8, size + 10);
+                }
+            }
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = glow;
+            ctx.fillText(d, x, baseY);
+            ctx.shadowBlur = 0;
+            x += w;
+        });
+        ctx.restore();
+    }
+
+    function drawFlame(cx, by, s) {
+        const f = 1 + Math.sin(frameCount * 0.35) * 0.08;
+        ctx.save();
+        ctx.translate(cx, by);
+        ctx.scale(s * f, s * f);
+        ctx.fillStyle = '#FF8A00';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(-9, -2, -9, -12, -2, -18);
+        ctx.bezierCurveTo(-2, -11, 2, -10, 3, -14);
+        ctx.bezierCurveTo(8, -9, 9, -2, 0, 0);
+        ctx.fill();
+        ctx.fillStyle = '#FFE600';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(-4, -1, -4, -6, 0, -9);
+        ctx.bezierCurveTo(4, -6, 4, -1, 0, 0);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawLightning(x1, y1, x2, y2, color, segs) {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        for (let i = 1; i < segs; i++) {
+            const t = i / segs;
+            ctx.lineTo(x1 + (x2 - x1) * t + (Math.random() - 0.5) * 22,
+                       y1 + (y2 - y1) * t + (Math.random() - 0.5) * 22);
+        }
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Balok laser pembatas gerbang dengan aliran energi
+    function drawGateBar(x, y, w, h, color, t) {
+        const g = ctx.createLinearGradient(0, y, 0, y + h);
+        g.addColorStop(0, '#0B1030');
+        g.addColorStop(0.5, '#1E1B4B');
+        g.addColorStop(1, '#0B1030');
+        ctx.fillStyle = g;
+        ctx.fillRect(x, y, w, h);
+
+        ctx.save();
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, w, h);
+        ctx.restore();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        ctx.clip();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 10]);
+        ctx.lineDashOffset = -t * 1.6;
+        const my = Math.max(y, Math.min(y + h, y + (h > 60 ? 30 : h / 2)));
+        ctx.beginPath();
+        ctx.moveTo(x, my);
+        ctx.lineTo(x + w, my);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawBrackets(x, y, w, h, len) {
+        ctx.beginPath();
+        ctx.moveTo(x, y + len); ctx.lineTo(x, y); ctx.lineTo(x + len, y);
+        ctx.moveTo(x + w - len, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + len);
+        ctx.moveTo(x + w, y + h - len); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - len, y + h);
+        ctx.moveTo(x + len, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - len);
+        ctx.stroke();
+    }
+
+    function drawQuizGates() {
+        const t = frameCount;
+        for (const qg of quizGates) {
+            if (qg.x > LOGICAL_WIDTH + 120) continue;
+            const A = qg.appear;
+            const x = qg.x, w = qg.width, bh = qg.barrierHeight;
+            const resolved = qg.resolved;
+
+            ctx.save();
+            const jitter = A < 1 ? (Math.random() - 0.5) * 12 * (1 - A) : 0;
+            ctx.translate(jitter, qg.offsetY);
+            ctx.globalAlpha = A;
+
+            // Kolom cahaya di belakang gerbang
+            const glow = ctx.createLinearGradient(x - 24, 0, x + w + 24, 0);
+            glow.addColorStop(0, 'rgba(0, 245, 212, 0)');
+            glow.addColorStop(0.5, 'rgba(0, 245, 212, 0.10)');
+            glow.addColorStop(1, 'rgba(0, 245, 212, 0)');
+            ctx.fillStyle = glow;
+            ctx.fillRect(x - 24, -40, w + 48, PLAYABLE_HEIGHT + 80);
+
+            // Pembatas atas & antar slot
+            drawGateBar(x, -40, w, bh + 40, '#00F5D4', t);
+            qg.slots.forEach((slot, i) => {
+                const isLast = i === qg.slots.length - 1;
+                drawGateBar(x, slot.bottomY, w, bh + (isLast ? 40 : 0), '#FF2A6D', t);
+            });
+
+            // Panel jawaban holografik
+            for (const slot of qg.slots) {
+                const sx = x + 3, sy = slot.topY + 2, sw = w - 6, sh = slot.bottomY - slot.topY - 4;
+                const isChosen = qg.chosenIndex === slot.index;
+                const isHover = !resolved && qg.hoverSlot === slot.index;
+                const hot = resolved && (slot.isCorrect || isChosen);
+                const midY = (slot.topY + slot.bottomY) / 2;
+                const cx = x + w / 2;
+                let col = slot.color;
+                let dim = 1;
+                if (resolved) {
+                    if (slot.isCorrect) col = '#39FF14';
+                    else if (isChosen) col = '#FF003C';
+                    else dim = 0.35;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = A * dim;
+                const pg = ctx.createLinearGradient(sx, sy, sx + sw, sy + sh);
+                pg.addColorStop(0, 'rgba(8, 14, 40, 0.82)');
+                pg.addColorStop(1, 'rgba(24, 10, 54, 0.82)');
+                ctx.fillStyle = pg;
+                ctx.fillRect(sx, sy, sw, sh);
+
+                // Warna slot (lebih terang saat disorot burung / sudah dinilai)
+                ctx.globalAlpha = A * dim * ((isHover ? 0.30 : 0.10) + (hot ? 0.16 + 0.12 * Math.sin(t * 0.4) : 0));
+                ctx.fillStyle = col;
+                ctx.fillRect(sx, sy, sw, sh);
+
+                // Garis pindai bergerak
+                ctx.globalAlpha = A * dim * 0.35;
+                ctx.fillRect(sx, sy + ((t * 1.3 + slot.index * 47) % sh), sw, 2);
+
+                // Bingkai neon + sudut
+                ctx.globalAlpha = A * dim;
+                ctx.strokeStyle = col;
+                ctx.lineWidth = (isHover || hot) ? 3 : 1.5;
+                ctx.shadowColor = col;
+                ctx.shadowBlur = (isHover || hot) ? 14 : 6;
+                ctx.strokeRect(sx, sy, sw, sh);
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 2;
+                drawBrackets(sx + 2, sy + 2, sw - 4, sh - 4, 7);
+
+                // Lencana huruf
+                ctx.fillStyle = col;
+                ctx.beginPath();
+                ctx.arc(cx, midY - 20, 11, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#050510';
+                ctx.font = 'bold 11px "Press Start 2P", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(slot.label, cx + 1, midY - 16);
+
+                // Nilai jawaban
+                const len = slot.text.length;
+                const fs = len >= 4 ? 15 : (len === 3 ? 18 : 22);
+                ctx.font = 'bold ' + fs + 'px "Orbitron", sans-serif';
+                ctx.fillStyle = hot ? col : '#FFFFFF';
+                ctx.shadowColor = col;
+                ctx.shadowBlur = hot ? 14 : 8;
+                ctx.fillText(slot.text, cx, midY + 18, sw - 6);
+                ctx.shadowBlur = 0;
+
+                // Penanda panah saat burung berada di slot ini
+                if (isHover) {
+                    ctx.strokeStyle = col;
+                    ctx.lineWidth = 3;
+                    const bob = Math.sin(t * 0.3) * 3;
+                    for (let c = 0; c < 2; c++) {
+                        const px = x - 12 - c * 9 + bob;
+                        ctx.beginPath();
+                        ctx.moveTo(px - 5, midY - 8);
+                        ctx.lineTo(px, midY);
+                        ctx.lineTo(px - 5, midY + 8);
+                        ctx.stroke();
+                    }
+                }
+
+                // Ikon centang / silang setelah dinilai
+                if (resolved && (slot.isCorrect || isChosen)) {
+                    ctx.strokeStyle = col;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    const ix = sx + sw - 12, iy = sy + 13;
+                    if (slot.isCorrect) {
+                        ctx.moveTo(ix - 6, iy); ctx.lineTo(ix - 2, iy + 5); ctx.lineTo(ix + 6, iy - 5);
+                    } else {
+                        ctx.moveTo(ix - 5, iy - 5); ctx.lineTo(ix + 5, iy + 5);
+                        ctx.moveTo(ix + 5, iy - 5); ctx.lineTo(ix - 5, iy + 5);
+                    }
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // Efek hasil jawaban
+            if (resolved && qg.flash > 0) {
+                const chosen = qg.chosenIndex >= 0 ? qg.slots[qg.chosenIndex] : null;
+                const cy = chosen ? (chosen.topY + chosen.bottomY) / 2 : bird.y - qg.offsetY;
+                if (qg.result === 'WRONG') {
+                    drawLightning(x + w / 2, cy, bird.x, bird.y - qg.offsetY, '#FF003C', 7);
+                    drawLightning(x + w / 2, cy, bird.x, bird.y - qg.offsetY, '#FFFFFF', 5);
+                } else {
+                    const total = qg.result === 'CORRECT' ? 70 : 90;
+                    const prog = 1 - qg.flash / total;
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0, 1 - prog);
+                    ctx.strokeStyle = qg.result === 'CORRECT' ? '#39FF14' : '#00F5D4';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(x + w / 2, cy, 12 + prog * 90, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+            ctx.restore();
+        }
+    }
+
+    // Panel soal di atas layar (digambar di belakang gerbang agar jawaban tetap terbaca)
+    function drawMathPanel() {
+        if (!activeQuiz) return;
+        if (gameState !== 'PLAYING' && gameState !== 'DYING_QUIZ' && gameState !== 'DYING_NORMAL') return;
+
+        const p = activeQuiz;
+        const qg = quizGates.find(g => g.problem === p) || null;
+        const warning = quizWarningTimer > 0;
+        const resolved = !!(qg && qg.resolved);
+        const pw = Math.min(UI_W - 36, 410);
+        const ph = 72;
+        const px = UI_OFFSET + (UI_W - pw) / 2;
+        const py = 80;
+
+        let alpha = 1;
+        if (warning) alpha = Math.min(1, (quizWarningMax - quizWarningTimer + 1) / 14);
+        else if (resolved && gameState === 'PLAYING') alpha = Math.min(1, qg.flash / 25);
+        if (alpha <= 0) return;
+
+        let border = p.tierInfo.color;
+        if (warning) border = Math.floor(frameCount / 8) % 2 === 0 ? '#FF003C' : '#FFE600';
+        else if (qg && qg.result === 'CORRECT') border = '#39FF14';
+        else if (qg && qg.result === 'WRONG') border = '#FF003C';
+        else if (qg && qg.result === 'SAVED') border = '#00F5D4';
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = 'rgba(6, 10, 30, 0.90)';
+        ctx.strokeStyle = border;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = border;
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.roundRect(px, py, pw, ph, 12);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Baris 1: tier & jenis soal
+        ctx.font = 'bold 9px "Orbitron", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = p.tierInfo.color;
+        ctx.fillText('LV.' + (p.tier + 1) + ' ' + p.tierInfo.name, px + 12, py + 17);
+        ctx.textAlign = 'right';
+        if (warning) {
+            ctx.fillStyle = Math.floor(frameCount / 10) % 2 === 0 ? '#FFE600' : '#FF8FA3';
+            ctx.fillText('DECRYPTING...', px + pw - 12, py + 17);
+        } else {
+            ctx.fillStyle = '#94A3B8';
+            ctx.fillText(p.kindLabel, px + pw - 12, py + 17);
+        }
+
+        // Baris 2: persamaan
+        let revealCount;
+        if (warning) {
+            const prog = (quizWarningMax - quizWarningTimer) / (quizWarningMax * 0.6);
+            revealCount = Math.floor(prog * p.tokens.length);
+        }
+        drawEquation(p.tokens, px + pw / 2, py + 52, pw - 28, 20, {
+            revealCount: revealCount,
+            solvedValue: resolved ? p.value : undefined
+        });
+
+        // Baris 3: bar waktu / jarak gerbang
+        let frac, barColor;
+        if (warning) {
+            frac = quizWarningTimer / quizWarningMax;
+            barColor = border;
+        } else if (!resolved && qg) {
+            frac = Math.max(0, Math.min(1, (qg.x - BIRD_X) / qg.spawnDist));
+            barColor = '#FFE600';
+        } else {
+            frac = 1;
+            barColor = border;
+        }
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(px + 12, py + ph - 10, pw - 24, 4);
+        ctx.fillStyle = barColor;
+        ctx.fillRect(px + 12, py + ph - 10, (pw - 24) * frac, 4);
+        ctx.restore();
+    }
+
+    // Pil kecil di atas burung: jawaban yang akan terpilih bila lurus masuk gerbang
+    function drawAnswerPreview() {
+        if (gameState !== 'PLAYING') return;
+        const qg = quizGates.find(g => !g.resolved && g.hoverSlot >= 0 && g.x - bird.x < 300 && g.x > bird.x - 20);
+        if (!qg) return;
+        const slot = qg.slots[qg.hoverSlot];
+        const text = slot.label + ' = ' + slot.text;
+
+        ctx.save();
+        ctx.font = 'bold 12px "Orbitron", sans-serif';
+        ctx.textAlign = 'center';
+        const tw = ctx.measureText(text).width + 18;
+        const bx = Math.max(4, Math.min(LOGICAL_WIDTH - tw - 4, bird.x - tw / 2));
+        const by = Math.max(4, bird.y - 52);
+        ctx.fillStyle = 'rgba(5, 8, 22, 0.88)';
+        ctx.strokeStyle = slot.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, tw, 22, 8);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(bird.x - 5, by + 22);
+        ctx.lineTo(bird.x + 5, by + 22);
+        ctx.lineTo(bird.x, by + 29);
+        ctx.closePath();
+        ctx.fillStyle = slot.color;
+        ctx.fill();
+        ctx.fillStyle = slot.color;
+        ctx.fillText(text, bx + tw / 2, by + 16);
+        ctx.restore();
+    }
+
+    // Pil combo di HUD (dipanggil di dalam drawHUD)
+    function drawStreakPill() {
+        if (mathStats.streak < 2) return;
+        const sx = UI_W - 134, sy = 50;
+        const hot = mathStats.streak >= 5;
+        ctx.save();
+        ctx.fillStyle = 'rgba(10, 14, 35, 0.82)';
+        ctx.strokeStyle = hot ? '#FFE600' : '#FF8A00';
+        ctx.lineWidth = 1.5;
+        if (hot) { ctx.shadowColor = '#FF8A00'; ctx.shadowBlur = 10; }
+        ctx.beginPath();
+        ctx.roundRect(sx, sy, 120, 22, 8);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        drawFlame(sx + 15, sy + 18, 0.85);
+        ctx.fillStyle = hot ? '#FFE600' : '#FFB347';
+        ctx.font = 'bold 10px "Orbitron", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('COMBO x' + mathStats.streak, sx + 29, sy + 15);
+        ctx.restore();
     }
 
     function drawCyberFloor(theme) {
@@ -1986,7 +2910,8 @@
         ctx.fillText(`BEST: ${highScore}`, UI_W - 24, 33);
 
         // Active Power-Up / Trap Status Indicators (Below Top Bar)
-        let statusY = 56;
+        const panelOn = activeQuiz !== null;
+        let statusY = panelOn ? (stageBannerTimer > 0 ? 204 : 160) : 56;
         ctx.textAlign = 'left';
         ctx.font = 'bold 10px "Orbitron", sans-serif';
 
@@ -2013,58 +2938,24 @@
         // Stage Transition Banner
         if (stageBannerTimer > 0) {
             const alpha = Math.min(1, stageBannerTimer / 30);
+            const bannerY = panelOn ? 160 : 118;
             ctx.save();
             ctx.globalAlpha = alpha;
             ctx.fillStyle = 'rgba(5, 8, 22, 0.85)';
             ctx.strokeStyle = theme.accentNeon;
             ctx.lineWidth = 2;
-            ctx.fillRect(-UI_OFFSET, 118, LOGICAL_WIDTH, 36);
-            ctx.strokeRect(-UI_OFFSET - 2, 118, LOGICAL_WIDTH + 4, 36);
+            ctx.fillRect(-UI_OFFSET, bannerY, LOGICAL_WIDTH, 36);
+            ctx.strokeRect(-UI_OFFSET - 2, bannerY, LOGICAL_WIDTH + 4, 36);
 
             ctx.fillStyle = theme.accentNeon;
             ctx.font = 'bold 13px "Orbitron", sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(stageBannerText, UI_W / 2, 141);
+            ctx.fillText(stageBannerText, UI_W / 2, bannerY + 23);
             ctx.restore();
         }
 
-        // QUIZ GATE WARNING OR ACTIVE QUESTION PANEL
-        if (quizWarningTimer > 0) {
-            const blink = Math.floor(frameCount / 8) % 2 === 0;
-            ctx.fillStyle = blink ? 'rgba(255, 0, 60, 0.9)' : 'rgba(20, 10, 30, 0.9)';
-            ctx.strokeStyle = '#FFE600';
-            ctx.lineWidth = 2.5;
-            ctx.beginPath();
-            ctx.roundRect(35, 115, UI_W - 70, 56, 10);
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = 'bold 13px "Press Start 2P", monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText('! QUIZ GATE INCOMING !', UI_W / 2, 140, UI_W - 90);
-            ctx.font = 'bold 11px "Orbitron", sans-serif';
-            ctx.fillStyle = '#FFE600';
-            ctx.fillText('MASUK KE CELAH JAWABAN YANG BENAR!', UI_W / 2, 160, UI_W - 90);
-        } else if (activeQuiz && quizGates.length > 0) {
-            // Top Question Display Box
-            ctx.fillStyle = 'rgba(8, 12, 34, 0.92)';
-            ctx.strokeStyle = '#00F5D4';
-            ctx.lineWidth = 2.5;
-            ctx.beginPath();
-            ctx.roundRect(24, 104, UI_W - 48, 54, 12);
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.fillStyle = '#00F5D4';
-            ctx.font = 'bold 10px "Orbitron", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('SECURITY VERIFICATION // PILIH JALUR BENAR:', UI_W / 2, 122, UI_W - 64);
-
-            ctx.fillStyle = '#FFE600';
-            ctx.font = 'bold 15px "Press Start 2P", monospace';
-            ctx.fillText(activeQuiz.q, UI_W / 2, 146, UI_W - 64);
-        }
+        // Combo streak pill (panel soal digambar di lapisan dunia: drawMathPanel)
+        drawStreakPill();
     }
 
     function drawStatusBadge(x, y, text, color) {
@@ -2101,8 +2992,55 @@
 
         ctx.font = 'bold 11px "Orbitron", sans-serif';
         ctx.fillStyle = '#E0FBFC';
-        ctx.fillText('NEON OVERDRIVE EDITION // HIGH SCORE: ' + highScore, UI_W / 2, 198, UI_W - 20);
+        ctx.fillText('NEON OVERDRIVE EDITION // HIGH SCORE: ' + highScore + ' // COMBO: ' + bestComboAll, UI_W / 2, 198, UI_W - 20);
         ctx.restore();
+
+        // Math Operation Selector (pilih operasi yang muncul di soal)
+        const opPanelY = 352;
+        const opPanelW = UI_W - 64;
+        ctx.fillStyle = 'rgba(11, 16, 40, 0.88)';
+        ctx.strokeStyle = '#FFE600';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(32, opPanelY, opPanelW, 64, 14);
+        ctx.fill();
+        ctx.stroke();
+
+        const noticeOn = menuNotice.timer > 0;
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 10px "Orbitron", sans-serif';
+        ctx.fillStyle = noticeOn ? '#FF2A6D' : '#FFE600';
+        ctx.fillText(noticeOn ? menuNotice.text : 'OPERASI SOAL MATEMATIKA  [1-4]',
+                     UI_W / 2, opPanelY + 19, opPanelW - 16);
+
+        uiButtons.opBtns = [];
+        const opGap = 8;
+        const opW = Math.floor((opPanelW - 24 - opGap * 3) / 4);
+        const opH = 30;
+        MATH_OP_ORDER.forEach((id, idx) => {
+            const op = MATH_OPS[id];
+            const ox = 44 + idx * (opW + opGap);
+            const oy = opPanelY + 28;
+            const on = mathSettings[id];
+            uiButtons.opBtns.push({ x: ox, y: oy, w: opW, h: opH, id: id });
+
+            ctx.fillStyle = on ? 'rgba(255, 255, 255, 0.10)' : 'rgba(20, 28, 64, 0.8)';
+            ctx.strokeStyle = on ? op.color : '#415A77';
+            ctx.lineWidth = on ? 2.5 : 1.5;
+            if (on) { ctx.shadowColor = op.color; ctx.shadowBlur = 8; }
+            ctx.beginPath();
+            ctx.roundRect(ox, oy, opW, opH, 8);
+            ctx.fill();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = on ? op.color : '#64748B';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 15px "Press Start 2P", monospace';
+            ctx.fillText(op.sym, ox + 16, oy + 21);
+            ctx.font = 'bold 8px "Orbitron", sans-serif';
+            ctx.fillText(op.name, ox + opW / 2 + 12, oy + 19, opW - 36);
+        });
 
         // Skin Selector Panel
         const panelY = 425;
@@ -2170,7 +3108,7 @@
         ctx.fillStyle = '#FF8FA3';
         ctx.fillText('TRAP: Laser EMP & [!G!] Gravity Glitch', UI_W / 2, guideY + 41, UI_W - 60);
         ctx.fillStyle = '#FFE600';
-        ctx.fillText('QUIZ GATE: Terbang ke celah jawaban BENAR!', UI_W / 2, guideY + 60, UI_W - 60);
+        ctx.fillText('MATH GATE: Terbang ke jawaban hitungan BENAR!', UI_W / 2, guideY + 60, UI_W - 60);
 
         // START GAME Button
         const startBtn = { x: 65, y: 638, w: UI_W - 130, h: 54 };
@@ -2242,10 +3180,13 @@
         ctx.fillRect(-UI_OFFSET, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
         const isQuizDeath = deathReason === 'QUIZ_WRONG';
+        const hasReview = isQuizDeath && lastMathResult && !lastMathResult.correct;
+        const oy = hasReview ? 104 : 0;   // ruang tambahan untuk review soal
         const boxW = Math.min(360, UI_W - 24);
-        const boxH = 380;
+        const boxH = 380 + oy;
         const bx = (UI_W - boxW) / 2;
-        const by = 185;
+        const by = hasReview ? 110 : 185;
+        const y0 = by + oy;
 
         // Card Container
         ctx.fillStyle = '#0D1326';
@@ -2268,7 +3209,7 @@
             ctx.fillText('SYSTEM TERMINATED', UI_W / 2, by + 46, boxW - 24);
             ctx.fillStyle = '#FF8FA3';
             ctx.font = 'bold 11px "Orbitron", sans-serif';
-            ctx.fillText('JAWABAN SALAH // TEGANGAN TINGGI!', UI_W / 2, by + 72);
+            ctx.fillText('JAWABAN SALAH // TEGANGAN TINGGI!', UI_W / 2, by + 72, boxW - 24);
         } else {
             ctx.fillStyle = '#FF2A6D';
             ctx.font = 'bold 24px "Press Start 2P", monospace';
@@ -2276,6 +3217,35 @@
             ctx.fillStyle = '#94A3B8';
             ctx.font = 'bold 11px "Orbitron", sans-serif';
             ctx.fillText(`TERHENTI DI STAGE ${currentStage}`, UI_W / 2, by + 72);
+        }
+
+        // Review soal yang salah dijawab
+        if (hasReview) {
+            const res = lastMathResult;
+            const rx = bx + 16, ry = by + 88, rw = boxW - 32, rh = 96;
+            ctx.fillStyle = 'rgba(255, 0, 60, 0.08)';
+            ctx.strokeStyle = 'rgba(255, 0, 60, 0.55)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.roundRect(rx, ry, rw, rh, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#94A3B8';
+            ctx.font = 'bold 9px "Orbitron", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('REVIEW SOAL // LV.' + (res.problem.tier + 1) + ' ' + res.problem.tierInfo.name,
+                         UI_W / 2, ry + 16, rw - 16);
+
+            drawEquation(res.problem.tokens, UI_W / 2, ry + 46, rw - 16, 17, { solvedValue: res.problem.value });
+
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 11px "Orbitron", sans-serif';
+            ctx.fillStyle = '#FF8FA3';
+            ctx.fillText(res.hitDivider ? 'KAMU MENABRAK PEMBATAS GERBANG' : 'JAWABANMU: ' + res.chosenText,
+                         UI_W / 2, ry + 69, rw - 16);
+            ctx.fillStyle = '#39FF14';
+            ctx.fillText('JAWABAN BENAR: ' + res.problem.value, UI_W / 2, ry + 87, rw - 16);
         }
 
         // Medal Calculation (Authentic Flappy Bird Medal Tiers)
@@ -2288,7 +3258,7 @@
 
         // Medal Circle (Left side of scoreboard)
         const medalX = bx + 85;
-        const medalY = by + 155;
+        const medalY = y0 + 155;
         ctx.fillStyle = '#1E293B';
         ctx.beginPath();
         ctx.arc(medalX, medalY, 36, 0, Math.PI * 2);
@@ -2305,9 +3275,11 @@
 
             ctx.fillStyle = '#050510';
             ctx.font = 'bold 16px "Press Start 2P", monospace';
+            ctx.textAlign = 'center';
             ctx.fillText('★', medalX, medalY + 6);
         }
 
+        ctx.textAlign = 'center';
         ctx.fillStyle = medalColor;
         ctx.font = 'bold 9px "Orbitron", sans-serif';
         ctx.fillText(medalName, medalX, medalY + 52);
@@ -2316,23 +3288,31 @@
         const statX = bx + 245;
         ctx.fillStyle = '#94A3B8';
         ctx.font = 'bold 11px "Orbitron", sans-serif';
-        ctx.fillText('SCORE', statX, by + 122);
+        ctx.fillText('SCORE', statX, y0 + 122);
 
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 24px "Press Start 2P", monospace';
-        ctx.fillText(score.toString(), statX, by + 152);
+        ctx.fillText(score.toString(), statX, y0 + 152);
 
         ctx.fillStyle = '#FFE600';
         ctx.font = 'bold 11px "Orbitron", sans-serif';
-        ctx.fillText(isNewHighScore ? 'NEW BEST!' : 'BEST SCORE', statX, by + 185);
+        ctx.fillText(isNewHighScore ? 'NEW BEST!' : 'BEST SCORE', statX, y0 + 185);
 
         ctx.fillStyle = '#FFE600';
         ctx.font = 'bold 22px "Press Start 2P", monospace';
-        ctx.fillText(highScore.toString(), statX, by + 214);
+        ctx.fillText(highScore.toString(), statX, y0 + 214);
+
+        // Statistik matematika
+        if (mathStats.solved + mathStats.wrong > 0) {
+            ctx.fillStyle = '#00F5D4';
+            ctx.font = 'bold 10px "Orbitron", sans-serif';
+            ctx.fillText('MATH: ' + mathStats.solved + ' BENAR  |  COMBO TERBAIK: x' + mathStats.bestStreak,
+                         UI_W / 2, y0 + 238, boxW - 24);
+        }
 
         // Action Buttons: PLAY AGAIN & MAIN MENU
-        const restartBtn = { x: bx + 28, y: by + 252, w: boxW - 56, h: 48 };
-        const menuBtn = { x: bx + 28, y: by + 312, w: boxW - 56, h: 44 };
+        const restartBtn = { x: bx + 28, y: y0 + 252, w: boxW - 56, h: 48 };
+        const menuBtn = { x: bx + 28, y: y0 + 312, w: boxW - 56, h: 44 };
         uiButtons.restartBtn = restartBtn;
         uiButtons.menuBtn = menuBtn;
 
@@ -2395,6 +3375,11 @@
         ctx.font = 'bold 12px "Orbitron", sans-serif';
         ctx.fillText(`HIGH SCORE: ${highScore}`, UI_W / 2, by + 165);
 
+        ctx.fillStyle = '#00F5D4';
+        ctx.font = 'bold 10px "Orbitron", sans-serif';
+        ctx.fillText('MATH: ' + mathStats.solved + ' BENAR  |  COMBO TERBAIK: x' + mathStats.bestStreak,
+                     UI_W / 2, by + 186, boxW - 24);
+
         // Endless Mode Button
         const endlessBtn = { x: bx + 28, y: by + 195, w: boxW - 56, h: 48 };
         const menuBtn = { x: bx + 28, y: by + 258, w: boxW - 56, h: 44 };
@@ -2448,6 +3433,13 @@
                 audio.sfxClick();
                 return;
             }
+            // Check Math Operation Toggles
+            for (const oBtn of uiButtons.opBtns) {
+                if (isInside(pt, oBtn)) {
+                    tryToggleMathOp(oBtn.id);
+                    return;
+                }
+            }
             // Check Skin Selection
             for (const sBtn of uiButtons.skinBtns) {
                 if (isInside(pt, sBtn)) {
@@ -2500,6 +3492,13 @@
     }, { passive: false });
 
     window.addEventListener('keydown', (e) => {
+        if (gameState === 'MENU') {
+            const m = /^(Digit|Numpad)([1-4])$/.exec(e.code);
+            if (m) {
+                tryToggleMathOp(MATH_OP_ORDER[parseInt(m[2], 10) - 1]);
+                return;
+            }
+        }
         if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
             e.preventDefault();
             audio.init();
@@ -2527,4 +3526,4 @@
 })();
 </script>
 </body>
-    </html>
+</html>
