@@ -14,7 +14,14 @@
             padding: 0;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent; /* hilangkan kilatan biru saat disentuh */
             touch-action: manipulation;
+        }
+
+        canvas, canvas:focus, canvas:active, #game-wrapper {
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         html, body {
@@ -3478,6 +3485,11 @@
             }
         }
     }
+
+    // Cegah seleksi/menu konteks yang memicu sorotan biru di browser
+    ['contextmenu', 'selectstart', 'dragstart'].forEach(ev => {
+        document.addEventListener(ev, (e) => e.preventDefault());
+    });
 
     canvas.addEventListener('mousedown', (e) => {
         e.preventDefault();
