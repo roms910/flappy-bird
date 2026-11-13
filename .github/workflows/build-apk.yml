@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches:
-      - main  # Ganti 'master' jika branch utama Anda master
+      - main  # Ganti ke 'master' jika branch utama repository Anda bernama master
 
 jobs:
   build:
@@ -17,7 +17,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          # cache: 'npm' dimatikan agar tidak mencari package-lock.json
 
       - name: Install Dependencies
         run: npm install
@@ -27,6 +26,11 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      - name: Prepare Web Assets
+        run: |
+          mkdir -p www
+          cp index.html www/
 
       - name: Add Android Platform
         run: |
