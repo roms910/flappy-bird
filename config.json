@@ -1,0 +1,34 @@
+{
+  "gameplay": {
+    "gravity": 0.44,
+    "flapStrength": -7.6,
+    "floorHeight": 110,
+    "pipeWidth": 72,
+    "winStageTarget": 10,
+    "difficultyFullScore": 100,
+    "speedStart": 2.0,
+    "speedEnd": 3.8,
+    "gapStart": 220,
+    "gapEnd": 158,
+    "spacingStart": 370,
+    "spacingEnd": 270,
+    "mathFirstGateScore": 8,
+    "mathGateInterval": 10
+  },
+  "runtime": {
+    "targetFps": 60,
+    "maxFrameDelta": 100,
+    "maxCatchUpSteps": 5,
+    "pixelRatioLimit": 2
+  },
+  "storage": {
+    "highScoreKey": "cyberFlappyHighScore"
+  },
+  "online": {
+    "provider": "supabase",
+    "configPath": "./supabase-config.json",
+    "leaderboardLimit": 50,
+    "coinsPerScore": 2,
+    "maxCoinsPerRun": 200
+  }
+}

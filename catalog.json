@@ -1,0 +1,598 @@
+[
+  {
+    "id": "skin_1",
+    "name": "CYBER YELLOW",
+    "type": "skin",
+    "rarity": "Free",
+    "price": 0,
+    "free": true,
+    "colors": {
+      "bodyMain": "#FFD60A",
+      "bodyShade": "#E09F00",
+      "bodyHighlight": "#FFF3B0",
+      "wingColor": "#FFF8D6",
+      "beakTop": "#FF7B00",
+      "beakBottom": "#D00000",
+      "visorColor": "#00F5D4",
+      "trailColor": "#FFD60AA6"
+    }
+  },
+  {
+    "id": "skin_2",
+    "name": "NEON CYAN",
+    "type": "skin",
+    "rarity": "Free",
+    "price": 0,
+    "free": true,
+    "colors": {
+      "bodyMain": "#00F5D4",
+      "bodyShade": "#0096C7",
+      "bodyHighlight": "#CAF0F8",
+      "wingColor": "#E0FBFC",
+      "beakTop": "#FF007F",
+      "beakBottom": "#9D0208",
+      "visorColor": "#FFEE32",
+      "trailColor": "#00F5D4A6"
+    }
+  },
+  {
+    "id": "skin_3",
+    "name": "CRIMSON GLITCH",
+    "type": "skin",
+    "rarity": "Common",
+    "price": 150,
+    "free": false,
+    "colors": {
+      "bodyMain": "#FF2A6D",
+      "bodyShade": "#9B0036",
+      "bodyHighlight": "#FF8FA3",
+      "wingColor": "#FFD6E0",
+      "beakTop": "#05D9E8",
+      "beakBottom": "#005F73",
+      "visorColor": "#39FF14",
+      "trailColor": "#FF2A6DA6"
+    }
+  },
+  {
+    "id": "skin_4",
+    "name": "VIOLET PULSE",
+    "type": "skin",
+    "rarity": "Common",
+    "price": 200,
+    "free": false,
+    "colors": {
+      "bodyMain": "#A78BFA",
+      "bodyShade": "#6D28D9",
+      "bodyHighlight": "#DDD6FE",
+      "wingColor": "#F5F3FF",
+      "beakTop": "#F472B6",
+      "beakBottom": "#9D174D",
+      "visorColor": "#67E8F9",
+      "trailColor": "#A78BFAA6"
+    }
+  },
+  {
+    "id": "skin_5",
+    "name": "TOXIC FROG",
+    "type": "skin",
+    "rarity": "Common",
+    "price": 250,
+    "free": false,
+    "colors": {
+      "bodyMain": "#84CC16",
+      "bodyShade": "#3F6212",
+      "bodyHighlight": "#D9F99D",
+      "wingColor": "#ECFCCB",
+      "beakTop": "#FDE047",
+      "beakBottom": "#A16207",
+      "visorColor": "#22D3EE",
+      "trailColor": "#84CC16A6"
+    }
+  },
+  {
+    "id": "skin_6",
+    "name": "GOLDEN BYTE",
+    "type": "skin",
+    "rarity": "Rare",
+    "price": 350,
+    "free": false,
+    "colors": {
+      "bodyMain": "#FBBF24",
+      "bodyShade": "#B45309",
+      "bodyHighlight": "#FEF3C7",
+      "wingColor": "#FFFBEB",
+      "beakTop": "#F97316",
+      "beakBottom": "#9A3412",
+      "visorColor": "#FDE68A",
+      "trailColor": "#FBBF24A6"
+    }
+  },
+  {
+    "id": "skin_7",
+    "name": "ICE PHANTOM",
+    "type": "skin",
+    "rarity": "Rare",
+    "price": 400,
+    "free": false,
+    "colors": {
+      "bodyMain": "#BAE6FD",
+      "bodyShade": "#0284C7",
+      "bodyHighlight": "#F0F9FF",
+      "wingColor": "#FFFFFF",
+      "beakTop": "#38BDF8",
+      "beakBottom": "#075985",
+      "visorColor": "#E0F2FE",
+      "trailColor": "#BAE6FDA6"
+    }
+  },
+  {
+    "id": "skin_8",
+    "name": "LAVA CORE",
+    "type": "skin",
+    "rarity": "Rare",
+    "price": 450,
+    "free": false,
+    "colors": {
+      "bodyMain": "#FB7185",
+      "bodyShade": "#9F1239",
+      "bodyHighlight": "#FFE4E6",
+      "wingColor": "#FFF1F2",
+      "beakTop": "#F97316",
+      "beakBottom": "#7C2D12",
+      "visorColor": "#FACC15",
+      "trailColor": "#FB7185A6"
+    }
+  },
+  {
+    "id": "skin_9",
+    "name": "MINT CIRCUIT",
+    "type": "skin",
+    "rarity": "Rare",
+    "price": 500,
+    "free": false,
+    "colors": {
+      "bodyMain": "#6EE7B7",
+      "bodyShade": "#047857",
+      "bodyHighlight": "#D1FAE5",
+      "wingColor": "#ECFDF5",
+      "beakTop": "#34D399",
+      "beakBottom": "#065F46",
+      "visorColor": "#A7F3D0",
+      "trailColor": "#6EE7B7A6"
+    }
+  },
+  {
+    "id": "skin_10",
+    "name": "SOLAR FLARE",
+    "type": "skin",
+    "rarity": "Rare",
+    "price": 550,
+    "free": false,
+    "colors": {
+      "bodyMain": "#FDBA74",
+      "bodyShade": "#C2410C",
+      "bodyHighlight": "#FFEDD5",
+      "wingColor": "#FFF7ED",
+      "beakTop": "#FDE047",
+      "beakBottom": "#A16207",
+      "visorColor": "#FB923C",
+      "trailColor": "#FDBA74A6"
+    }
+  },
+  {
+    "id": "skin_11",
+    "name": "DEEP SPACE",
+    "type": "skin",
+    "rarity": "Epic",
+    "price": 750,
+    "free": false,
+    "colors": {
+      "bodyMain": "#818CF8",
+      "bodyShade": "#3730A3",
+      "bodyHighlight": "#E0E7FF",
+      "wingColor": "#EEF2FF",
+      "beakTop": "#C084FC",
+      "beakBottom": "#6B21A8",
+      "visorColor": "#A5B4FC",
+      "trailColor": "#818CF8A6"
+    }
+  },
+  {
+    "id": "skin_12",
+    "name": "ROSE QUARTZ",
+    "type": "skin",
+    "rarity": "Epic",
+    "price": 850,
+    "free": false,
+    "colors": {
+      "bodyMain": "#FDA4AF",
+      "bodyShade": "#BE123C",
+      "bodyHighlight": "#FFE4E6",
+      "wingColor": "#FFF1F2",
+      "beakTop": "#F9A8D4",
+      "beakBottom": "#9D174D",
+      "visorColor": "#FBCFE8",
+      "trailColor": "#FDA4AFA6"
+    }
+  },
+  {
+    "id": "skin_13",
+    "name": "STEEL TITAN",
+    "type": "skin",
+    "rarity": "Epic",
+    "price": 900,
+    "free": false,
+    "colors": {
+      "bodyMain": "#94A3B8",
+      "bodyShade": "#334155",
+      "bodyHighlight": "#E2E8F0",
+      "wingColor": "#F8FAFC",
+      "beakTop": "#64748B",
+      "beakBottom": "#1E293B",
+      "visorColor": "#CBD5E1",
+      "trailColor": "#94A3B8A6"
+    }
+  },
+  {
+    "id": "skin_14",
+    "name": "PLASMA ORANGE",
+    "type": "skin",
+    "rarity": "Epic",
+    "price": 950,
+    "free": false,
+    "colors": {
+      "bodyMain": "#FB923C",
+      "bodyShade": "#C2410C",
+      "bodyHighlight": "#FFEDD5",
+      "wingColor": "#FFF7ED",
+      "beakTop": "#FACC15",
+      "beakBottom": "#92400E",
+      "visorColor": "#FDBA74",
+      "trailColor": "#FB923CA6"
+    }
+  },
+  {
+    "id": "skin_15",
+    "name": "AQUA RANGER",
+    "type": "skin",
+    "rarity": "Epic",
+    "price": 1000,
+    "free": false,
+    "colors": {
+      "bodyMain": "#2DD4BF",
+      "bodyShade": "#0F766E",
+      "bodyHighlight": "#CCFBF1",
+      "wingColor": "#F0FDFA",
+      "beakTop": "#67E8F9",
+      "beakBottom": "#155E75",
+      "visorColor": "#99F6E4",
+      "trailColor": "#2DD4BFA6"
+    }
+  },
+  {
+    "id": "skin_16",
+    "name": "MAGENTA X",
+    "type": "skin",
+    "rarity": "Epic",
+    "price": 1100,
+    "free": false,
+    "colors": {
+      "bodyMain": "#E879F9",
+      "bodyShade": "#A21CAF",
+      "bodyHighlight": "#FAE8FF",
+      "wingColor": "#FDF4FF",
+      "beakTop": "#F0ABFC",
+      "beakBottom": "#86198F",
+      "visorColor": "#F5D0FE",
+      "trailColor": "#E879F9A6"
+    }
+  },
+  {
+    "id": "skin_17",
+    "name": "EMERALD KING",
+    "type": "skin",
+    "rarity": "Legendary",
+    "price": 1600,
+    "free": false,
+    "colors": {
+      "bodyMain": "#34D399",
+      "bodyShade": "#065F46",
+      "bodyHighlight": "#D1FAE5",
+      "wingColor": "#ECFDF5",
+      "beakTop": "#A3E635",
+      "beakBottom": "#365314",
+      "visorColor": "#6EE7B7",
+      "trailColor": "#34D399A6"
+    }
+  },
+  {
+    "id": "skin_18",
+    "name": "NOVA WHITE",
+    "type": "skin",
+    "rarity": "Legendary",
+    "price": 1800,
+    "free": false,
+    "colors": {
+      "bodyMain": "#F8FAFC",
+      "bodyShade": "#64748B",
+      "bodyHighlight": "#FFFFFF",
+      "wingColor": "#FFFFFF",
+      "beakTop": "#CBD5E1",
+      "beakBottom": "#475569",
+      "visorColor": "#E2E8F0",
+      "trailColor": "#F8FAFCA6"
+    }
+  },
+  {
+    "id": "skin_19",
+    "name": "BLACKOUT",
+    "type": "skin",
+    "rarity": "Legendary",
+    "price": 2000,
+    "free": false,
+    "colors": {
+      "bodyMain": "#475569",
+      "bodyShade": "#020617",
+      "bodyHighlight": "#CBD5E1",
+      "wingColor": "#E2E8F0",
+      "beakTop": "#64748B",
+      "beakBottom": "#0F172A",
+      "visorColor": "#94A3B8",
+      "trailColor": "#475569A6"
+    }
+  },
+  {
+    "id": "skin_20",
+    "name": "NEBULA KING",
+    "type": "skin",
+    "rarity": "Legendary",
+    "price": 2200,
+    "free": false,
+    "colors": {
+      "bodyMain": "#C4B5FD",
+      "bodyShade": "#7C3AED",
+      "bodyHighlight": "#EDE9FE",
+      "wingColor": "#FAF5FF",
+      "beakTop": "#F0ABFC",
+      "beakBottom": "#A21CAF",
+      "visorColor": "#DDD6FE",
+      "trailColor": "#C4B5FDA6"
+    }
+  },
+  {
+    "id": "skin_21",
+    "name": "DRAGON FIRE",
+    "type": "skin",
+    "rarity": "Mythic",
+    "price": 3200,
+    "free": false,
+    "colors": {
+      "bodyMain": "#EF4444",
+      "bodyShade": "#7F1D1D",
+      "bodyHighlight": "#FECACA",
+      "wingColor": "#FEE2E2",
+      "beakTop": "#F97316",
+      "beakBottom": "#7C2D12",
+      "visorColor": "#FBBF24",
+      "trailColor": "#EF4444A6"
+    }
+  },
+  {
+    "id": "skin_22",
+    "name": "CYBER ANGEL",
+    "type": "skin",
+    "rarity": "Mythic",
+    "price": 3600,
+    "free": false,
+    "colors": {
+      "bodyMain": "#F9A8D4",
+      "bodyShade": "#BE185D",
+      "bodyHighlight": "#FCE7F3",
+      "wingColor": "#FDF2F8",
+      "beakTop": "#FBCFE8",
+      "beakBottom": "#9D174D",
+      "visorColor": "#FFFFFF",
+      "trailColor": "#F9A8D4A6"
+    }
+  },
+  {
+    "id": "skin_23",
+    "name": "GLITCH GOD",
+    "type": "skin",
+    "rarity": "Mythic",
+    "price": 4200,
+    "free": false,
+    "colors": {
+      "bodyMain": "#A3E635",
+      "bodyShade": "#4D7C0F",
+      "bodyHighlight": "#ECFCCB",
+      "wingColor": "#F7FEE7",
+      "beakTop": "#22D3EE",
+      "beakBottom": "#155E75",
+      "visorColor": "#F0ABFC",
+      "trailColor": "#A3E635A6"
+    }
+  },
+  {
+    "id": "skin_24",
+    "name": "OMEGA PRIME",
+    "type": "skin",
+    "rarity": "Mythic",
+    "price": 5000,
+    "free": false,
+    "colors": {
+      "bodyMain": "#FDE047",
+      "bodyShade": "#713F12",
+      "bodyHighlight": "#FEF9C3",
+      "wingColor": "#FFFBEB",
+      "beakTop": "#FB7185",
+      "beakBottom": "#9F1239",
+      "visorColor": "#FFFFFF",
+      "trailColor": "#FDE047A6"
+    }
+  },
+  {
+    "id": "theme_neon",
+    "name": "Neon Dusk",
+    "type": "theme",
+    "rarity": "Free",
+    "price": 0,
+    "free": true,
+    "colors": [
+      "#090A1F",
+      "#1B1448",
+      "#00F5D4"
+    ]
+  },
+  {
+    "id": "theme_synth",
+    "name": "Synthwave",
+    "type": "theme",
+    "rarity": "Rare",
+    "price": 450,
+    "free": false,
+    "colors": [
+      "#1A0626",
+      "#4A0E4E",
+      "#FF2A6D"
+    ]
+  },
+  {
+    "id": "theme_matrix",
+    "name": "Matrix Core",
+    "type": "theme",
+    "rarity": "Epic",
+    "price": 850,
+    "free": false,
+    "colors": [
+      "#03170E",
+      "#0B3B24",
+      "#39FF14"
+    ]
+  },
+  {
+    "id": "theme_solar",
+    "name": "Solar Overload",
+    "type": "theme",
+    "rarity": "Legendary",
+    "price": 1500,
+    "free": false,
+    "colors": [
+      "#1F0C04",
+      "#592209",
+      "#FF9E00"
+    ]
+  },
+  {
+    "id": "tap_default",
+    "name": "Default Tap",
+    "type": "tap",
+    "price": 0,
+    "rarity": "Free",
+    "free": true
+  },
+  {
+    "id": "tap_ring",
+    "name": "Neon Ring",
+    "type": "tap",
+    "price": 180,
+    "rarity": "Common",
+    "free": false
+  },
+  {
+    "id": "tap_burst",
+    "name": "Pixel Burst",
+    "type": "tap",
+    "price": 350,
+    "rarity": "Rare",
+    "free": false
+  },
+  {
+    "id": "tap_lightning",
+    "name": "Lightning Pulse",
+    "type": "tap",
+    "price": 650,
+    "rarity": "Epic",
+    "free": false
+  },
+  {
+    "id": "tap_portal",
+    "name": "Portal Wave",
+    "type": "tap",
+    "price": 1200,
+    "rarity": "Legendary",
+    "free": false
+  },
+  {
+    "id": "tail_default",
+    "name": "Classic Trail",
+    "type": "tail",
+    "price": 0,
+    "rarity": "Free",
+    "free": true
+  },
+  {
+    "id": "tail_spark",
+    "name": "Spark Trail",
+    "type": "tail",
+    "price": 200,
+    "rarity": "Common",
+    "free": false
+  },
+  {
+    "id": "tail_rainbow",
+    "name": "Rainbow Trail",
+    "type": "tail",
+    "price": 450,
+    "rarity": "Rare",
+    "free": false
+  },
+  {
+    "id": "tail_comet",
+    "name": "Comet Tail",
+    "type": "tail",
+    "price": 800,
+    "rarity": "Epic",
+    "free": false
+  },
+  {
+    "id": "tail_aurora",
+    "name": "Aurora Stream",
+    "type": "tail",
+    "price": 1600,
+    "rarity": "Legendary",
+    "free": false
+  },
+  {
+    "id": "sound_arcade",
+    "name": "Arcade Click",
+    "type": "sound",
+    "price": 0,
+    "rarity": "Free",
+    "free": true
+  },
+  {
+    "id": "sound_crystal",
+    "name": "Crystal Click",
+    "type": "sound",
+    "price": 150,
+    "rarity": "Common",
+    "free": false
+  },
+  {
+    "id": "sound_plasma",
+    "name": "Plasma Click",
+    "type": "sound",
+    "price": 350,
+    "rarity": "Rare",
+    "free": false
+  },
+  {
+    "id": "sound_8bit",
+    "name": "8-Bit Click",
+    "type": "sound",
+    "price": 600,
+    "rarity": "Epic",
+    "free": false
+  }
+]
