@@ -93,3 +93,11 @@ Menu **🛡 Admin** di bar atas hanya muncul jika email akun yang login terdafta
 
 ### Update database yang sudah berjalan
 Jalankan ulang `supabase/catalog_seed.sql` di SQL Editor (aman diulang) agar skin_25 dan item baru masuk ke tabel `catalog`.
+
+
+## Pengaturan performa & audio (V4)
+- Tombol **Setting** membuka menu grafik dan audio.
+- Preset Low/Medium/High/Ultra mengatur kualitas render, pixel ratio, latar, partikel, shader, dan efek glitch.
+- Custom menyediakan resolusi render, batas pixel ratio, toggle efek, SFX, musik sintetis, dan ambience prosedural (rain/storm/wind).
+- Pengaturan disimpan di localStorage perangkat masing-masing.
+- Untuk ponsel yang patah-patah, mulai dari **Low** atau **Medium**. Ultra membutuhkan perangkat/GPU yang lebih kuat.
