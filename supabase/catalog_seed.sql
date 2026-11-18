@@ -40,5 +40,6 @@ insert into public.catalog(id,name,item_type,rarity,price,free) values
 ('sound_arcade','Arcade Click','sound','Free',0,'true'),
 ('sound_crystal','Crystal Click','sound','Common',150,'false'),
 ('sound_plasma','Plasma Click','sound','Rare',350,'false'),
-('sound_8bit','8-Bit Click','sound','Epic',600,'false')
+('sound_8bit','8-Bit Click','sound','Epic',600,'false'),
+('skin_glitch_omega','NULL//CORRUPTION','skin','Glitched',99999,'false')
 on conflict(id) do update set name=excluded.name,item_type=excluded.item_type,rarity=excluded.rarity,price=excluded.price,free=excluded.free;
