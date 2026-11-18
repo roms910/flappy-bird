@@ -399,6 +399,9 @@
         { id: 'skin_24', name: "OMEGA PRIME", bodyMain: '#FDE047', bodyShade: '#713F12', bodyHighlight: '#FEF9C3', wingColor: '#FFFBEB', beakTop: '#FB7185', beakBottom: '#9F1239', visorColor: '#FFFFFF', trailColor: '#FDE047A6' },
     ];
     BIRD_SKINS.push(...EXTRA_SKINS);
+    const VEHICLE_SHAPES = { skin_6:'mech', skin_7:'jet', skin_13:'hovercar', skin_15:'starship', skin_17:'wingcraft', skin_20:'starship', skin_21:'dragon', skin_22:'angel', skin_24:'ufo', skin_glitch_omega:'glitch' };
+    BIRD_SKINS.forEach(s => { s.vehicle = VEHICLE_SHAPES[s.id] || 'bird'; });
+    BIRD_SKINS.push({ id:'skin_glitch_omega', name:'NULL//CORRUPTION', bodyMain:'#F8FAFC', bodyShade:'#030712', bodyHighlight:'#FFFFFF', wingColor:'#FF2A6D', beakTop:'#00F5D4', beakBottom:'#111827', visorColor:'#FFFFFF', trailColor:'rgba(255,42,109,.8)', vehicle:'glitch', glitch:true });
     try {
         const savedSkin = localStorage.getItem('cf_equipped_skin');
         if (savedSkin) { const skinIndex = BIRD_SKINS.findIndex(x => x.id === savedSkin); if (skinIndex >= 0) selectedSkinIndex = skinIndex; }
@@ -1045,7 +1048,8 @@
         playClick() { audio.init(); audio.sfxClick(); },
         playTap() { audio.init(); audio.sfxFlap(); },
         toggleAudio() { audio.init(); audio.toggle(); return audio.enabled; },
-        isAudioOn() { return audio.enabled; }
+        isAudioOn() { return audio.enabled; },
+        getEquippedSkin() { return BIRD_SKINS[selectedSkinIndex]?.id || 'skin_1'; }
     };
 
     // =========================================================================
@@ -1153,6 +1157,12 @@
         const calculatedStage = Math.floor(score / 10) + 1;
         if (calculatedStage > currentStage) {
             currentStage = calculatedStage;
+            if (BIRD_SKINS[selectedSkinIndex]?.glitch) {
+                triggerScreenShake(2.2, 7);
+                screenFlashColor = '#E8F7FF';
+                screenFlashAlpha = 0.12;
+                stageBannerTimer = Math.max(stageBannerTimer, 115);
+            }
             if (!endlessMode && currentStage > WIN_STAGE_TARGET) {
                 triggerVictory();
                 return;
@@ -2010,6 +2020,33 @@
         drawUiFx();
         ctx.restore();
 
+        if (BIRD_SKINS[selectedSkinIndex]?.glitch && gameState === 'PLAYING' && stageBannerTimer > 0) {
+            // Brief stage corruption: restrained negative scan, edge fragments and hairline cracks.
+            ctx.save();
+            ctx.globalCompositeOperation = 'difference';
+            ctx.globalAlpha = .10 + .035 * Math.sin(frameCount * .7);
+            ctx.fillStyle = '#FFFFFF';
+            const bandY = (frameCount * 13) % Math.max(1, LOGICAL_HEIGHT - 80);
+            ctx.fillRect(0, bandY, LOGICAL_WIDTH, 9);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = .5;
+            ctx.font = 'bold 10px monospace';
+            const err = ['ERR_0xNULL','MEM://LOST','GLITCH_404','CORRUPT'];
+            for (let i=0;i<6;i++) {
+                ctx.fillStyle = i%2 ? '#00F5D4' : '#FF2A6D';
+                ctx.fillText(err[(i+Math.floor(frameCount/5))%err.length], (i*83+frameCount*2)%Math.max(1,LOGICAL_WIDTH-75), 95+(i%3)*27);
+            }
+            ctx.globalAlpha = .24;ctx.strokeStyle = '#FF2A6D';ctx.lineWidth = 1.5;
+            ctx.beginPath();ctx.moveTo(LOGICAL_WIDTH-38,120);ctx.lineTo(LOGICAL_WIDTH-55,143);ctx.lineTo(LOGICAL_WIDTH-31,159);ctx.lineTo(LOGICAL_WIDTH-48,183);ctx.stroke();
+            ctx.restore();
+        }
+        if (BIRD_SKINS[selectedSkinIndex]?.glitch && gameState === 'GAMEOVER') {
+            ctx.save();ctx.globalAlpha=.2+.1*Math.abs(Math.sin(frameCount*.19));ctx.fillStyle='#05050A';ctx.fillRect(0,0,LOGICAL_WIDTH,LOGICAL_HEIGHT);
+            ctx.globalAlpha=.82;ctx.font='bold 14px monospace';const errors=['FATAL_EXCEPTION: PLAYER_LOST','MEMORY_CORRUPTION // 0xNULL','SYSTEM_RECOVERY_FAILED','ENTITY_NOT_FOUND'];
+            errors.forEach((line,i)=>{ctx.fillStyle=i%2?'#00F5D4':'#FF2A6D';ctx.fillText(line,12+((frameCount*3+i*41)%Math.max(40,LOGICAL_WIDTH-220)),155+i*30);});
+            ctx.globalAlpha=.35;ctx.strokeStyle='#FF2A6D';for(let i=0;i<6;i++){const y=(frameCount*7+i*103)%LOGICAL_HEIGHT;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(LOGICAL_WIDTH,y+Math.sin(frameCount+i)*10);ctx.stroke();}ctx.restore();
+        }
+
         // Screen Flash Overlay
         if (screenFlashAlpha > 0) {
             ctx.fillStyle = screenFlashColor;
@@ -2788,145 +2825,65 @@
         ctx.globalAlpha = 1;
     }
 
-    function drawBird() {
-        const skin = BIRD_SKINS[selectedSkinIndex];
 
-        // 1. Cosmetic motion trail (selected tail effect)
-        const tailFx = window.CF_EFFECTS?.tail || 'tail_default';
-        const tailPalette = ['#00F5D4', '#FF2A6D', '#FFE600', '#A78BFA'];
-        for (let i = 0; i < bird.trail.length; i++) {
-            const pt = bird.trail[i];
-            const ratio = 1 - i / bird.trail.length;
-            ctx.fillStyle = tailFx === 'tail_rainbow' ? tailPalette[i % tailPalette.length] :
-                tailFx === 'tail_spark' ? (i % 2 ? '#FFE66D' : skin.trailColor) :
-                tailFx === 'tail_comet' ? '#FFFFFF' :
-                tailFx === 'tail_aurora' ? (i % 2 ? '#A78BFA' : '#00F5D4') : skin.trailColor;
-            ctx.globalAlpha = ratio * (tailFx === 'tail_comet' ? 0.7 : 0.45);
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, bird.radius * (tailFx === 'tail_comet' ? 0.72 : 0.55) * ratio, 0, Math.PI * 2);
-            ctx.fill();
+    function drawVehicleSilhouette(skin, t = frameCount) {
+        const shape=skin.vehicle||'bird', pulse=.92+Math.sin(t*.13)*.06;
+        const main=skin.bodyMain, shade=skin.bodyShade, hi=skin.bodyHighlight;
+        ctx.save();ctx.scale(.74*pulse,.74*pulse);ctx.shadowColor=skin.visorColor;ctx.shadowBlur=13;
+        if(shape==='jet'){
+            ctx.fillStyle=shade;ctx.beginPath();ctx.moveTo(-27,0);ctx.lineTo(-8,-7);ctx.lineTo(7,-20);ctx.lineTo(13,-18);ctx.lineTo(8,-5);ctx.lineTo(26,0);ctx.lineTo(8,5);ctx.lineTo(13,18);ctx.lineTo(7,20);ctx.lineTo(-8,7);ctx.closePath();ctx.fill();
+            ctx.fillStyle=main;ctx.fillRect(-15,-3,34,6);ctx.fillStyle=hi;ctx.fillRect(-4,-2,20,3);ctx.fillStyle=skin.visorColor;ctx.fillRect(13,-2,8,4);
+        }else if(shape==='hovercar'){
+            ctx.fillStyle=shade;ctx.beginPath();ctx.moveTo(-26,8);ctx.lineTo(-19,-4);ctx.lineTo(-7,-9);ctx.lineTo(10,-8);ctx.lineTo(24,4);ctx.lineTo(27,9);ctx.closePath();ctx.fill();
+            ctx.fillStyle=main;ctx.beginPath();ctx.moveTo(-12,-6);ctx.lineTo(-4,-16);ctx.lineTo(10,-16);ctx.lineTo(18,-5);ctx.closePath();ctx.fill();
+            ctx.fillStyle=hi;ctx.fillRect(-6,-13,13,4);ctx.fillStyle=skin.visorColor;ctx.fillRect(-22,8,10,3);ctx.fillRect(13,8,10,3);
+        }else if(shape==='starship'||shape==='wingcraft'){
+            ctx.fillStyle=shade;ctx.beginPath();ctx.moveTo(-27,0);ctx.lineTo(-7,-7);ctx.lineTo(2,-19);ctx.lineTo(11,-7);ctx.lineTo(27,0);ctx.lineTo(11,7);ctx.lineTo(2,19);ctx.lineTo(-7,7);ctx.closePath();ctx.fill();
+            ctx.fillStyle=main;ctx.beginPath();ctx.moveTo(-17,0);ctx.lineTo(9,-5);ctx.lineTo(21,0);ctx.lineTo(9,5);ctx.closePath();ctx.fill();ctx.fillStyle=hi;ctx.fillRect(-2,-3,12,6);ctx.fillStyle=skin.visorColor;ctx.fillRect(12,-2,8,4);
+        }else if(shape==='dragon'||shape==='angel'){
+            ctx.fillStyle=shade;ctx.beginPath();ctx.ellipse(0,2,19,12,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=main;
+            ctx.beginPath();ctx.moveTo(-4,-3);ctx.quadraticCurveTo(-25,-29,-26,-10);ctx.quadraticCurveTo(-13,-13,-8,6);ctx.closePath();ctx.fill();
+            ctx.beginPath();ctx.moveTo(4,-3);ctx.quadraticCurveTo(25,-29,26,-10);ctx.quadraticCurveTo(13,-13,8,6);ctx.closePath();ctx.fill();
+            ctx.fillStyle=hi;ctx.beginPath();ctx.ellipse(5,-3,7,4,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=skin.visorColor;ctx.fillRect(10,-2,9,3);
+        }else if(shape==='ufo'){
+            ctx.fillStyle=shade;ctx.beginPath();ctx.ellipse(0,5,28,8,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=main;ctx.beginPath();ctx.ellipse(0,0,17,9,0,Math.PI,Math.PI*2);ctx.fill();
+            ctx.fillStyle=hi;ctx.beginPath();ctx.ellipse(0,-2,9,6,0,Math.PI,Math.PI*2);ctx.fill();ctx.fillStyle=skin.visorColor;for(let x=-16;x<=16;x+=8)ctx.fillRect(x-2,4,4,3);
+        }else if(shape==='mech'){
+            ctx.fillStyle=shade;ctx.fillRect(-16,-13,32,27);ctx.fillStyle=main;ctx.fillRect(-12,-10,24,20);ctx.fillStyle=hi;ctx.fillRect(-8,-16,16,5);ctx.fillStyle=skin.visorColor;ctx.fillRect(3,-5,10,5);ctx.fillStyle=shade;ctx.fillRect(-24,-5,8,14);ctx.fillRect(16,-5,8,14);
+        }else if(shape==='glitch'){
+            const tick=Math.floor(t/3), palette=['#fff','#00F5D4','#FF2A6D','#09090D'], f=tick%8;
+            ctx.globalAlpha=f===2?.25:f===5?.6:1;ctx.fillStyle=palette[tick%4];ctx.beginPath();ctx.moveTo(-21,-8);ctx.lineTo(-8,-16);ctx.lineTo(9,-11);ctx.lineTo(21,-4);ctx.lineTo(17,10);ctx.lineTo(1,15);ctx.lineTo(-18,8);ctx.closePath();ctx.fill();
+            ctx.globalAlpha=1;ctx.fillStyle='#050505';ctx.fillRect(-5,-8,26,14);ctx.fillStyle=palette[(tick+1)%4];ctx.fillRect(-25,-13,18,3);ctx.fillRect(8,13,24,3);ctx.fillStyle='#fff';ctx.fillRect(7,-4,3,3);ctx.fillRect(15,-4,3,3);
+            if(f===3){ctx.clearRect(-28,-20,56,40);ctx.fillStyle='#FF2A6D';ctx.fillRect(-17,-3,35,5);}
+        }else{
+            ctx.fillStyle=main;ctx.beginPath();ctx.ellipse(0,0,19,15,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=shade;ctx.beginPath();ctx.ellipse(0,5,17,9,0,0,Math.PI);ctx.fill();
+            ctx.fillStyle=hi;ctx.beginPath();ctx.ellipse(-2,-7,11,4,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(7,-5,6.8,0,Math.PI*2);ctx.fill();
+            ctx.fillStyle='#080812';ctx.beginPath();ctx.arc(9.5,-5,2.6,0,Math.PI*2);ctx.fill();ctx.fillStyle=skin.visorColor;ctx.fillRect(2,-8,12,4);
+            ctx.fillStyle=skin.beakTop;ctx.beginPath();ctx.roundRect(11,-1,13,6,3);ctx.fill();ctx.fillStyle=skin.wingColor;ctx.beginPath();ctx.ellipse(-6,2,9.5,6,-.2,0,Math.PI*2);ctx.fill();
         }
-        ctx.globalAlpha = 1;
-
-        ctx.save();
-        ctx.translate(bird.x, bird.y);
-        ctx.rotate(bird.rotation);
-
-        // Apply Nano Shrink visual scale
-        const scale = activeEffects.shrink > 0 ? 0.62 : 1.0;
-        ctx.scale(scale, scale);
-
-        // If bird is charred from wrong quiz electrocution
-        const bodyMain = bird.charred ? '#2B2D42' : skin.bodyMain;
-        const bodyShade = bird.charred ? '#14151F' : skin.bodyShade;
-        const bodyHighlight = bird.charred ? '#4A4E69' : skin.bodyHighlight;
-
-        // 2. Iconic Flappy Bird Round Body (Pixel-Vector Layered Shading)
-        ctx.fillStyle = bodyMain;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 19, 15, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Bottom shading
-        ctx.fillStyle = bodyShade;
-        ctx.beginPath();
-        ctx.ellipse(0, 5, 17, 9, 0, 0, Math.PI);
-        ctx.fill();
-
-        // Top highlight
-        ctx.fillStyle = bodyHighlight;
-        ctx.beginPath();
-        ctx.ellipse(-2, -7, 11, 4, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Dark Outline (Classic Flappy Bird crisp silhouette)
-        ctx.strokeStyle = '#080812';
-        ctx.lineWidth = 2.4;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 19, 15, 0, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Cyber Circuit Line on body
-        ctx.strokeStyle = skin.visorColor;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-14, 2);
-        ctx.lineTo(-6, 2);
-        ctx.lineTo(-3, 6);
-        ctx.stroke();
-
-        // 3. Large Iconic Flappy Eye + Cyber Visor Lens
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.arc(7, -5, 6.8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#080812';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Pupil (or X-eye if dead!)
-        if (gameState === 'DYING_NORMAL' || gameState === 'DYING_QUIZ' || gameState === 'GAMEOVER') {
-            ctx.strokeStyle = '#FF003C';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(6, -7); ctx.lineTo(11, -2);
-            ctx.moveTo(11, -7); ctx.lineTo(6, -2);
-            ctx.stroke();
-        } else {
-            ctx.fillStyle = '#080812';
-            ctx.beginPath();
-            ctx.arc(9.5, -5, 2.6, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Glowing Cyber Visor Strip across eye
-            ctx.fillStyle = skin.visorColor;
-            ctx.globalAlpha = 0.55;
-            ctx.fillRect(2, -8, 12, 4.5);
-            ctx.globalAlpha = 1;
+        ctx.shadowBlur=0;ctx.restore();
+    }
+    function drawGlitchTrail(){
+        const codes=['0x00','ERR','NULL','404','NaN','FATAL'];
+        for(let i=0;i<9;i++){ctx.save();ctx.globalAlpha=.18+(i%3)*.12;ctx.fillStyle=i%2?'#00F5D4':'#FF2A6D';ctx.font='bold 9px monospace';ctx.fillText(codes[(i+Math.floor(frameCount/8))%codes.length],bird.x-20-i*5,bird.y+Math.sin(frameCount*.2+i)*9);ctx.restore();}
+    }
+    function drawBird(){
+        const skin=BIRD_SKINS[selectedSkinIndex],tailFx=window.CF_EFFECTS?.tail||'tail_default',palette=['#00F5D4','#FF2A6D','#FFE600','#A78BFA'];
+        for(let i=0;i<bird.trail.length;i++){const pt=bird.trail[i],ratio=1-i/bird.trail.length;ctx.save();
+            if(skin.glitch){ctx.globalAlpha=ratio*(.25+Math.random()*.4);ctx.fillStyle=Math.random()>.5?'#FF2A6D':'#00F5D4';ctx.fillRect(pt.x-7,pt.y-2,10+Math.random()*12,2+Math.random()*3);}
+            else{ctx.fillStyle=tailFx==='tail_rainbow'?palette[i%4]:tailFx==='tail_spark'?(i%2?'#FFE66D':skin.trailColor):tailFx==='tail_comet'?'#fff':tailFx==='tail_aurora'?(i%2?'#A78BFA':'#00F5D4'):skin.trailColor;ctx.globalAlpha=ratio*(tailFx==='tail_comet'?.7:.45);ctx.beginPath();ctx.arc(pt.x,pt.y,bird.radius*.55*ratio,0,Math.PI*2);ctx.fill();}ctx.restore();}
+        if(skin.glitch)drawGlitchTrail();
+        ctx.save();ctx.translate(bird.x,bird.y);ctx.rotate(bird.rotation);ctx.scale(activeEffects.shrink>0?.62:1,activeEffects.shrink>0?.62:1);
+        if(skin.vehicle&&skin.vehicle!=='bird'){drawVehicleSilhouette(skin);}
+        else{
+            const main=bird.charred?'#2B2D42':skin.bodyMain;ctx.fillStyle=main;ctx.beginPath();ctx.ellipse(0,0,19,15,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=bird.charred?'#14151F':skin.bodyShade;ctx.beginPath();ctx.ellipse(0,5,17,9,0,0,Math.PI);ctx.fill();
+            ctx.fillStyle=skin.bodyHighlight;ctx.beginPath();ctx.ellipse(-2,-7,11,4,0,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#080812';ctx.lineWidth=2.4;ctx.beginPath();ctx.ellipse(0,0,19,15,0,0,Math.PI*2);ctx.stroke();
+            ctx.strokeStyle=skin.visorColor;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(-14,2);ctx.lineTo(-6,2);ctx.lineTo(-3,6);ctx.stroke();
+            ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(7,-5,6.8,0,Math.PI*2);ctx.fill();ctx.fillStyle='#080812';ctx.beginPath();ctx.arc(9.5,-5,2.6,0,Math.PI*2);ctx.fill();
+            ctx.fillStyle=skin.visorColor;ctx.globalAlpha=.55;ctx.fillRect(2,-8,12,4.5);ctx.globalAlpha=1;ctx.fillStyle=skin.beakTop;ctx.beginPath();ctx.roundRect(11,-1,13,6,3);ctx.fill();
+            ctx.fillStyle=skin.beakBottom;ctx.beginPath();ctx.roundRect(11,4.5,11,5,3);ctx.fill();ctx.fillStyle=skin.wingColor;ctx.beginPath();ctx.ellipse(-6,[-3,2,6][bird.wingFrame],9.5,6,-.2,0,Math.PI*2);ctx.fill();
         }
-
-        // 4. Iconic Thick Two-Part Flappy Beak
-        // Upper Lip
-        ctx.fillStyle = skin.beakTop;
-        ctx.beginPath();
-        ctx.roundRect(11, -1, 13, 6, 3);
-        ctx.fill();
-        ctx.strokeStyle = '#080812';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Lower Lip
-        ctx.fillStyle = skin.beakBottom;
-        ctx.beginPath();
-        ctx.roundRect(11, 4.5, 11, 5, 3);
-        ctx.fill();
-        ctx.stroke();
-
-        // 5. Animated 3-Frame Flappy Wing
-        const wingOffsets = [-3, 2, 6]; // Up, Mid, Down
-        const wy = wingOffsets[bird.wingFrame];
-        ctx.fillStyle = skin.wingColor;
-        ctx.beginPath();
-        ctx.ellipse(-6, wy, 9.5, 6, -0.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#080812';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // 6. Active Cyber Shield Bubble
-        if (activeEffects.shield) {
-            ctx.strokeStyle = '#00F5D4';
-            ctx.lineWidth = 2.5;
-            ctx.shadowColor = '#00F5D4';
-            ctx.shadowBlur = 12;
-            ctx.beginPath();
-            ctx.arc(0, 0, 26 + Math.sin(frameCount * 0.15) * 2, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = 'rgba(0, 245, 212, 0.14)';
-            ctx.fill();
-            ctx.shadowBlur = 0;
-        }
-
+        if(activeEffects.shield){ctx.strokeStyle='#00F5D4';ctx.lineWidth=2.5;ctx.shadowColor='#00F5D4';ctx.shadowBlur=12;ctx.beginPath();ctx.arc(0,0,26+Math.sin(frameCount*.15)*2,0,Math.PI*2);ctx.stroke();ctx.fillStyle='rgba(0,245,212,.14)';ctx.fill();ctx.shadowBlur=0;}
         ctx.restore();
     }
 
