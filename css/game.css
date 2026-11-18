@@ -67,3 +67,13 @@
 canvas { touch-action: none; }
 body { overscroll-behavior: none; }
 @media (prefers-reduced-motion: reduce) { .crt-overlay { opacity: .45; } }
+
+
+/* Latar bergerak di sisi layar (letterbox) */
+#game-wrapper::before{content:"";position:absolute;inset:-50%;pointer-events:none;
+  background-image:linear-gradient(rgba(0,245,212,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(0,245,212,.07) 1px,transparent 1px);
+  background-size:48px 48px;transform:perspective(500px) rotateX(58deg) translateY(0);transform-origin:50% 100%;animation:gridDrift 6s linear infinite;opacity:.8}
+@keyframes gridDrift{to{background-position:0 48px}}
+canvas{position:relative;z-index:1;border-radius:6px;transition:box-shadow .4s}
+canvas:hover{box-shadow:0 0 50px rgba(0,243,255,.4),0 0 100px rgba(255,0,128,.22)}
+@media(prefers-reduced-motion:reduce){#game-wrapper::before{animation:none}}
