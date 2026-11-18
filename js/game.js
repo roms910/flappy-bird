@@ -957,6 +957,85 @@
         endlessBtn: { x: 0, y: 0, w: 0, h: 0 }
     };
 
+    // =========================================================================
+    // UI FX: hover glow, press flash, click ripples, overlay pop-in, count-up
+    // (hanya visual; tidak menyentuh logika gameplay)
+    // =========================================================================
+    const uiFx = { pointer: { x: -999, y: -999 }, pressPt: null, pressT: 0, ripples: [], lastState: gameState, enterT: 1, stateFrames: 0 };
+    const easeOutBack = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+    function activeUiButtons() {
+        const list = [];
+        if (gameState === 'MENU') list.push(uiButtons.startBtn, uiButtons.audioBtn, ...uiButtons.opBtns, ...uiButtons.skinBtns);
+        else if (gameState === 'GAMEOVER') list.push(uiButtons.restartBtn, uiButtons.menuBtn);
+        else if (gameState === 'VICTORY') list.push(uiButtons.endlessBtn, uiButtons.menuBtn);
+        return list.filter(r => r && r.w > 0);
+    }
+
+    function drawUiFx() {
+        const buttons = activeUiButtons();
+        const hovered = buttons.find(r => isInside(uiFx.pointer, r));
+        canvas.style.cursor = (hovered || gameState === 'READY' || gameState === 'PLAYING') ? 'pointer' : 'default';
+
+        // Denyut cincin di tombol START
+        if (gameState === 'MENU' && uiButtons.startBtn.w > 0) {
+            const sb = uiButtons.startBtn;
+            for (let k = 0; k < 2; k++) {
+                const t = ((frameCount + k * 45) % 90) / 90;
+                ctx.save();
+                ctx.globalAlpha = (1 - t) * 0.55;
+                ctx.strokeStyle = '#00F5D4';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.roundRect(sb.x - t * 16, sb.y - t * 16, sb.w + t * 32, sb.h + t * 32, 14 + t * 14);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        if (hovered) {
+            const pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.18);
+            const pressed = uiFx.pressPt && uiFx.pressT > 0 && isInside(uiFx.pressPt, hovered);
+            ctx.save();
+            ctx.fillStyle = `rgba(255,255,255,${pressed ? 0.12 + uiFx.pressT * 0.22 : 0.07 + pulse * 0.05})`;
+            ctx.beginPath();
+            ctx.roundRect(hovered.x, hovered.y, hovered.w, hovered.h, 12);
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255,255,255,${0.55 + pulse * 0.35})`;
+            ctx.shadowColor = '#00F5D4';
+            ctx.shadowBlur = 10 + pulse * 10;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(hovered.x - 2, hovered.y - 2, hovered.w + 4, hovered.h + 4, 14);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        for (const r of uiFx.ripples) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, 1 - r.t);
+            ctx.strokeStyle = r.color;
+            ctx.shadowColor = r.color;
+            ctx.shadowBlur = 10;
+            ctx.lineWidth = 3 * (1 - r.t) + 1;
+            ctx.beginPath();
+            ctx.arc(r.x, r.y, 8 + easeOutCubic(r.t) * 54, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    function updateUiFx() {
+        uiFx.stateFrames++;
+        if (uiFx.enterT < 1) uiFx.enterT = Math.min(1, uiFx.enterT + 0.07);
+        if (uiFx.pressT > 0) uiFx.pressT = Math.max(0, uiFx.pressT - 0.09);
+        for (let i = uiFx.ripples.length - 1; i >= 0; i--) {
+            uiFx.ripples[i].t += 0.05;
+            if (uiFx.ripples[i].t >= 1) uiFx.ripples.splice(i, 1);
+        }
+    }
+
     // Online Edition bridge: the overlay can equip catalog skins without coupling UI to engine internals.
     window.CyberFlappyBridge = {
         equipSkin(id) { const idx = BIRD_SKINS.findIndex(x => x.id === id); if (idx < 0) return false; selectedSkinIndex = idx; try { localStorage.setItem('cf_equipped_skin', id); } catch (_) {} return true; },
@@ -964,7 +1043,9 @@
         getHighScore() { return highScore; },
         getState() { return gameState; },
         playClick() { audio.init(); audio.sfxClick(); },
-        playTap() { audio.init(); audio.sfxFlap(); }
+        playTap() { audio.init(); audio.sfxFlap(); },
+        toggleAudio() { audio.init(); audio.toggle(); return audio.enabled; },
+        isAudioOn() { return audio.enabled; }
     };
 
     // =========================================================================
@@ -1455,6 +1536,7 @@
     // =========================================================================
     function update() {
         frameCount++;
+        updateUiFx();
 
         // Decay screen flash & shake
         if (screenFlashAlpha > 0) screenFlashAlpha = Math.max(0, screenFlashAlpha - 0.035);
@@ -1900,8 +1982,22 @@
         }
 
         // 10. State Overlays (Menu, Ready, GameOver, Victory)
+        if (gameState !== uiFx.lastState) {
+            uiFx.lastState = gameState;
+            uiFx.enterT = 0;
+            uiFx.stateFrames = 0;
+            uiFx.ripples.length = 0;
+        }
         ctx.save();
         ctx.translate(UI_OFFSET, 0);
+        if (gameState === 'MENU' || gameState === 'GAMEOVER' || gameState === 'VICTORY' || gameState === 'READY') {
+            // pop-in: fade + sedikit zoom dari tengah layar
+            const e = Math.min(1, easeOutBack(Math.min(1, uiFx.enterT)));
+            ctx.globalAlpha = Math.min(1, uiFx.enterT * 1.8);
+            ctx.translate(UI_W / 2, LOGICAL_HEIGHT / 2);
+            ctx.scale(0.94 + 0.06 * e, 0.94 + 0.06 * e);
+            ctx.translate(-UI_W / 2, -LOGICAL_HEIGHT / 2);
+        }
         if (gameState === 'MENU') {
             drawMainMenu();
         } else if (gameState === 'READY') {
@@ -1911,6 +2007,7 @@
         } else if (gameState === 'VICTORY') {
             drawVictoryModal();
         }
+        drawUiFx();
         ctx.restore();
 
         // Screen Flash Overlay
@@ -2973,16 +3070,26 @@
         ctx.save();
         ctx.textAlign = 'center';
         ctx.font = 'bold 34px "Press Start 2P", monospace';
+        const glitching = frameCount % 170 < 6;
+        const gx = glitching ? (Math.random() - 0.5) * 10 : 0;
+        const glow = 10 + 8 * Math.sin(frameCount * 0.07);
         ctx.fillStyle = '#FF2A6D';
-        ctx.fillText('CYBER', UI_W / 2 + 3, 125 + floatY + 3);
+        ctx.fillText('CYBER', UI_W / 2 + 3 + gx, 125 + floatY + 3);
+        if (glitching) { ctx.fillStyle = '#39B6FF'; ctx.fillText('CYBER', UI_W / 2 - 4 - gx, 125 + floatY - 2); }
         ctx.fillStyle = '#00F5D4';
+        ctx.shadowColor = '#00F5D4';
+        ctx.shadowBlur = glow;
         ctx.fillText('CYBER', UI_W / 2, 125 + floatY);
+        ctx.shadowBlur = 0;
 
         ctx.font = 'bold 30px "Press Start 2P", monospace';
         ctx.fillStyle = '#050510';
         ctx.fillText('FLAPPY', UI_W / 2 + 3, 168 + floatY + 3);
         ctx.fillStyle = '#FFE600';
+        ctx.shadowColor = '#FFE600';
+        ctx.shadowBlur = glow * 0.8;
         ctx.fillText('FLAPPY', UI_W / 2, 168 + floatY);
+        ctx.shadowBlur = 0;
 
         ctx.font = 'bold 11px "Orbitron", sans-serif';
         ctx.fillStyle = '#E0FBFC';
@@ -3287,7 +3394,8 @@
 
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 24px "Press Start 2P", monospace';
-        ctx.fillText(score.toString(), statX, y0 + 152);
+        const shownScore = Math.round(score * easeOutCubic(Math.min(1, Math.max(0, (uiFx.stateFrames - 8) / 45))));
+        ctx.fillText(shownScore.toString(), statX, y0 + 152);
 
         ctx.fillStyle = '#FFE600';
         ctx.font = 'bold 11px "Orbitron", sans-serif';
@@ -3483,8 +3591,23 @@
         e.preventDefault();
         if (e.isPrimary === false) return;
         try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+        const fxPt = getLogicalCoords(e.clientX, e.clientY);
+        fxPt.x -= UI_OFFSET;
+        uiFx.pointer = fxPt;
+        if (gameState !== 'PLAYING' && gameState !== 'READY') {
+            uiFx.pressPt = fxPt;
+            uiFx.pressT = 1;
+            uiFx.ripples.push({ x: fxPt.x, y: fxPt.y, t: 0, color: activeUiButtons().some(r => isInside(fxPt, r)) ? '#FFE600' : '#00F5D4' });
+        }
         handlePointerInput(e.clientX, e.clientY);
     });
+
+    canvas.addEventListener('pointermove', (e) => {
+        const pt = getLogicalCoords(e.clientX, e.clientY);
+        pt.x -= UI_OFFSET;
+        uiFx.pointer = pt;
+    });
+    canvas.addEventListener('pointerleave', () => { uiFx.pointer = { x: -999, y: -999 }; });
 
     window.addEventListener('keydown', (e) => {
         if (gameState === 'MENU') {
