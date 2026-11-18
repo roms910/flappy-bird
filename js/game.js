@@ -79,8 +79,9 @@
 
         // Support high-DPI screens cleanly
         const dpr = Math.min(window.devicePixelRatio || 1, CONFIG.runtime.pixelRatioLimit || 2);
-        canvas.style.width = `${finalW}px`;
-        canvas.style.height = `${finalH}px`;
+        const renderScale = Math.max(0.5, Math.min(1, Number(window.CF_SETTINGS?.resolution || 1)));
+        canvas.style.width = `${finalW * renderScale}px`;
+        canvas.style.height = `${finalH * renderScale}px`;
         canvas.width = Math.round(LOGICAL_WIDTH * dpr);
         canvas.height = Math.round(LOGICAL_HEIGHT * dpr);
         ctx.setTransform(canvas.width / LOGICAL_WIDTH, 0, 0, canvas.height / LOGICAL_HEIGHT, 0, 0);
@@ -133,7 +134,7 @@
             return this.enabled;
         }
 
-        playTone(freq, type, duration, vol = 0.15, slideFreq = null, delay = 0) {
+        playTone(freq, type, duration, vol = 0.15, slideFreq = null, delay = 0, channel = 'sfx') {
             if (!this.enabled) return;
             this.init();
             if (!this.ctx) return;
@@ -289,9 +290,9 @@
                 if (!this.enabled || (gameState !== 'PLAYING' && gameState !== 'READY')) return;
                 const freq = bassNotes[this.bgmStep % bassNotes.length];
                 // Subtle low synth pulse
-                this.playTone(freq, 'triangle', 0.18, 0.045, freq * 0.98);
+                this.playTone(freq, 'triangle', 0.18, 0.045, freq * 0.98, 0, 'music');
                 if (this.bgmStep % 4 === 0) {
-                    this.playTone(freq * 2, 'sine', 0.08, 0.025);
+                    this.playTone(freq * 2, 'sine', 0.08, 0.025, null, 0, 'music');
                 }
                 this.bgmStep++;
             }, 240);

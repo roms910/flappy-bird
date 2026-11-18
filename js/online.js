@@ -223,7 +223,7 @@ window.addEventListener('load', () => {
 
 // ---------- Audio toggle di top bar (tombol audio di canvas tertutup bar) ----------
 function syncAudioBtn() { const on = window.CyberFlappyBridge?.isAudioOn?.() ?? true; $('audio-toggle').firstChild.textContent = on ? '🔊 ' : '🔇 '; }
-$('audio-toggle').addEventListener('click', () => { window.CyberFlappyBridge?.toggleAudio?.(); syncAudioBtn(); });
+$('audio-toggle').addEventListener('click', () => { window.CyberFlappyBridge?.toggleAudio?.(); window.dispatchEvent(new Event('cyberflappy:audio-toggle')); syncAudioBtn(); });
 
 // ---------- Sembunyikan top bar saat bermain ----------
 setInterval(() => {
