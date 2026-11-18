@@ -133,29 +133,11 @@ body.playing .online-bar{transform:translateY(-110%);opacity:0;pointer-events:no
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
 
-
-/* Rich cosmetic previews */
-.item-preview-wrap{position:relative;height:112px;margin-bottom:10px;border-radius:10px;overflow:hidden;
-  background:radial-gradient(ellipse at 50% 50%,rgba(0,245,212,.10),rgba(5,9,20,.96) 72%);
-  border:1px solid rgba(148,163,184,.13)}
-.item-preview{display:block;width:100%;height:112px;object-fit:contain}
-.preview-tag{position:absolute;left:7px;bottom:6px;padding:4px 6px;border-radius:5px;background:rgba(3,8,18,.78);
-  color:#9fb7cf;font:700 8px Orbitron,Arial;letter-spacing:.6px}
-.item-card.r-glitched{--rc:#ff2a6d;border-color:rgba(255,42,109,.8);box-shadow:0 0 18px rgba(255,42,109,.16),inset 0 0 18px rgba(0,245,212,.07)}
-.item-card.r-glitched .item-preview-wrap{background:repeating-linear-gradient(0deg,rgba(255,42,109,.08) 0 2px,transparent 2px 6px),#050509}
-.item-card.r-glitched .item-preview{animation:glitchPreview 2.2s steps(2,end) infinite}
-.item-card.r-glitched .preview-tag{color:#ff9bb7;border:1px solid rgba(255,42,109,.45)}
-@keyframes glitchPreview{0%,88%,100%{transform:translate(0);filter:none}90%{transform:translate(2px,-1px);filter:hue-rotate(80deg)}92%{transform:translate(-3px,1px);filter:invert(1)}94%{transform:translate(1px,0);filter:none}}
-.item-card .item-bottom{min-height:30px}
-@media(max-width:520px){.item-preview-wrap,.item-preview{height:100px}.catalog-grid{gap:8px}.item-card{padding:8px}}
-@media(prefers-reduced-motion:reduce){.item-card.r-glitched .item-preview{animation:none}}
-
-.item-preview.type-tap{animation:previewTap 1.8s ease-in-out infinite alternate}
-.item-preview.type-tail{animation:previewTail 2.4s ease-in-out infinite alternate}
-.item-preview.type-theme{animation:previewTheme 5s ease-in-out infinite alternate}
-@keyframes previewTap{to{filter:brightness(1.28);transform:scale(.97)}}
-@keyframes previewTail{to{filter:brightness(1.25);transform:translateX(3px)}}
-@keyframes previewTheme{to{filter:saturate(1.3) brightness(1.12)}}
-.tap-fx.tap-glitch{border:2px dashed #ff2a6d;border-radius:0;box-shadow:0 0 18px #ff2a6d,0 0 26px #00f5d4;animation:tapCorrupt .62s steps(2,end) forwards}
-@keyframes tapCorrupt{0%{width:8px;height:8px;opacity:1;transform:translate(-50%,-50%) rotate(0)}35%{width:72px;height:18px;opacity:.9;transform:translate(-50%,-50%) skewX(24deg)}70%{width:38px;height:58px;opacity:.7;transform:translate(-50%,-50%) skewX(-18deg)}100%{width:110px;height:82px;opacity:0;transform:translate(-50%,-50%) rotate(45deg)}}
-@media(prefers-reduced-motion:reduce){.item-preview.type-tap,.item-preview.type-tail,.item-preview.type-theme{animation:none}}
+/* ---------- Preview animasi di toko ---------- */
+.pv{display:block;width:100%;height:96px;border-radius:9px;margin-bottom:9px;background:#0b1024;cursor:pointer;border:1px solid rgba(148,163,184,.15)}
+.item-card:hover .pv{border-color:color-mix(in srgb,var(--rc) 60%,transparent)}
+#fx-canvas{position:fixed!important;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:30;background:transparent!important;box-shadow:none!important;border-radius:0!important;image-rendering:auto}
+.item-card.r-corrupted{--rc:#ff003c;animation:rise .45s var(--ease) both,corrupt 2.6s steps(1) infinite;animation-delay:calc(var(--i,0)*35ms),0s}
+.item-card.r-corrupted>small{animation:glitchText 1.4s steps(1) infinite}
+@keyframes corrupt{0%,88%,100%{transform:none;filter:none}90%{transform:translateX(-3px);filter:hue-rotate(90deg) saturate(2)}92%{transform:translateX(3px) skewX(-4deg);filter:invert(1)}95%{transform:none;filter:none}}
+@keyframes glitchText{0%,90%,100%{text-shadow:none}92%{text-shadow:2px 0 #00e5ff,-2px 0 #ff003c}}
