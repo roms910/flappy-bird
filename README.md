@@ -12,6 +12,8 @@ Game HTML5 canvas + Supabase Auth (Google), PostgreSQL, RCoin shop, cosmetics, a
 - `supabase-config.json`: public Supabase URL + publishable/anon key (template)
 - `supabase/schema.sql`: database schema, RLS, profile trigger, secure RPC
 - `supabase/catalog_seed.sql`: catalog seed
+- `supabase/admin.sql`: tabel `admins`, fungsi `is_admin()`, dan policy RLS untuk admin
+- `admin.html`, `js/admin.js`, `css/admin.css`: halaman Admin Panel
 
 ## Setup satu per satu
 
@@ -65,3 +67,17 @@ Buka `http://localhost:8080`. Jangan memakai `file://`, karena config dan modul 
 
 ## Catatan implementasi kosmetik
 24 skin burung terintegrasi ke renderer. Tema, tap, tail, dan sound sudah memiliki katalog, inventory, dan equip state. Tap FX memiliki efek visual. Tema lanjutan dan efek tail/sound khusus masih berupa pilihan kosmetik tersimpan; pengaitan penuh ke seluruh renderer/audio gameplay dapat dikembangkan pada iterasi berikutnya.
+
+
+## Admin Panel
+Menu **🛡 Admin** di bar atas hanya muncul jika email akun yang login terdaftar di tabel `public.admins`. Halaman `admin.html` bisa melihat, mengedit (klik sel langsung atau tombol ✎ untuk JSON), menambah, menghapus, mencari, mengurutkan, dan mengekspor CSV untuk tabel `profiles`, `catalog`, `inventory`, `game_runs`, dan `admins`.
+
+### Setup admin
+1. Buka `supabase/admin.sql`, ganti `GANTI_DENGAN_EMAIL_ADMIN@gmail.com` dengan email Google admin (huruf kecil).
+2. Jalankan seluruh isinya di **SQL Editor** (setelah `schema.sql` dan `catalog_seed.sql`). Aman diulang.
+3. Login ke game dengan akun tersebut; tombol Admin muncul. Untuk menambah admin lain, tambahkan email di tab **Admins** atau lewat SQL.
+
+### Keamanan
+- Yang melindungi data adalah RLS di database (`is_admin()`), bukan tombol di frontend. Orang yang membuka `admin.html` tanpa akses admin hanya melihat "Akses ditolak" dan tidak bisa membaca/mengubah apa pun.
+- Biarkan provider Email/Password di Supabase nonaktif (atau wajib konfirmasi email) agar email admin tidak bisa didaftarkan orang lain.
+- Harga, nama, dan status aktif item di tab **Catalog** langsung dipakai Shop (game membaca katalog dari database; `catalog.json` hanya untuk warna skin).

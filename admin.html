@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#050510">
+  <title>ADMIN PANEL // CYBER FLAPPY</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./css/admin.css">
+</head>
+<body>
+  <div id="gate" class="gate"><div class="gate-card"><div class="spinner"></div><p>Memeriksa akses…</p></div></div>
+  <div id="app" class="app hidden">
+    <header class="top">
+      <div class="logo">ADMIN<span> // CYBER FLAPPY</span></div>
+      <div class="top-right">
+        <span id="who" class="who"></span>
+        <a class="btn ghost" href="./index.html">← Game</a>
+        <button id="logout" class="btn danger">Logout</button>
+      </div>
+    </header>
+    <nav id="tabs" class="tabs"></nav>
+    <main id="main" class="main"></main>
+  </div>
+  <div id="dlg" class="dlg hidden"><div class="dlg-card" id="dlg-card"></div></div>
+  <div id="toast" class="toast"></div>
+  <script type="module" src="./js/admin.js"></script>
+</body>
+</html>
