@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Number(n || 0));
-const RARITY = ['Free', 'Common', 'Rare', 'Epic', 'Legendary', 'Mythic'];
+const RARITY = ['Free', 'Common', 'Rare', 'Epic', 'Legendary', 'Mythic', 'Corrupted'];
 
 // Definisi tabel (sesuai supabase/schema.sql + admin.sql).  pk = kolom primary key, ro = read-only, null = boleh NULL.
 const TABLES = {
