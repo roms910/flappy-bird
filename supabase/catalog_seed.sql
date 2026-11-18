@@ -41,5 +41,15 @@ insert into public.catalog(id,name,item_type,rarity,price,free) values
 ('sound_crystal','Crystal Click','sound','Common',150,'false'),
 ('sound_plasma','Plasma Click','sound','Rare',350,'false'),
 ('sound_8bit','8-Bit Click','sound','Epic',600,'false'),
-('skin_glitch_omega','NULL//CORRUPTION','skin','Glitched',99999,'false')
+('skin_25','FATAL ERROR','skin','Corrupted',9999,'false'),
+('theme_ocean','Deep Ocean','theme','Rare',600,'false'),
+('theme_space','Cosmic Drift','theme','Epic',950,'false'),
+('theme_storm','Thunder Grid','theme','Legendary',1700,'false'),
+('tap_shock','Shockwave','tap','Rare',500,'false'),
+('tap_firework','Firework','tap','Epic',750,'false'),
+('tail_bubble','Deep Sea Bubbles','tail','Common',220,'false'),
+('tail_pixel','Pixel Dust','tail','Rare',500,'false'),
+('tail_fire','Hellfire Trail','tail','Epic',900,'false'),
+('sound_bubble','Bubble Pop','sound','Common',200,'false'),
+('sound_laser','Laser Zap','sound','Rare',400,'false')
 on conflict(id) do update set name=excluded.name,item_type=excluded.item_type,rarity=excluded.rarity,price=excluded.price,free=excluded.free;

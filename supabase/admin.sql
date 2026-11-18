@@ -16,7 +16,7 @@ alter table public.admins enable row level security;
 
 -- ⚠️ GANTI dengan email Google admin kamu (huruf kecil), lalu jalankan.
 insert into public.admins(email, note)
-values (lower('romii.ziadullahh@gmail.com'), 'owner')
+values (lower('GANTI_DENGAN_EMAIL_ADMIN@gmail.com'), 'owner')
 on conflict (email) do nothing;
 
 create or replace function public.is_admin() returns boolean
