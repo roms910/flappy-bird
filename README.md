@@ -5,10 +5,11 @@ Game HTML5 canvas + Supabase Auth (Google), PostgreSQL, RCoin shop, cosmetics, a
 ## Struktur
 - `index.html`: game entry point + online overlay
 - `js/game.js`: original game engine plus 24 bird skins and bridge
-- `js/online.js`: Supabase auth, shop, leaderboard, RCoin transactions
+- `js/cosmetics.js`: bentuk skin (UFO, jet, kapal, mobil terbang, dll), efek ekor & klik bertema, tema latar, suara, preview toko, dan efek glitch skin FATAL ERROR
+- `js/online.js`: Supabase auth, shop (dengan preview animasi), leaderboard, RCoin transactions
 - `css/online.css`: online UI
 - `config.json`: gameplay/runtime settings
-- `catalog.json`: cosmetic catalog (24 skins, themes, tap/tail/sound FX)
+- `catalog.json`: cosmetic catalog (25 skins, 7 themes, tap/tail/sound FX)
 - `supabase-config.json`: public Supabase URL + publishable/anon key (template)
 - `supabase/schema.sql`: database schema, RLS, profile trigger, secure RPC
 - `supabase/catalog_seed.sql`: catalog seed
@@ -81,3 +82,14 @@ Menu **🛡 Admin** di bar atas hanya muncul jika email akun yang login terdafta
 - Yang melindungi data adalah RLS di database (`is_admin()`), bukan tombol di frontend. Orang yang membuka `admin.html` tanpa akses admin hanya melihat "Akses ditolak" dan tidak bisa membaca/mengubah apa pun.
 - Biarkan provider Email/Password di Supabase nonaktif (atau wajib konfirmasi email) agar email admin tidak bisa didaftarkan orang lain.
 - Harga, nama, dan status aktif item di tab **Catalog** langsung dipakai Shop (game membaca katalog dari database; `catalog.json` hanya untuk warna skin).
+
+
+## Kosmetik v3
+- **Bentuk beragam:** tiap skin kini punya bentuk sendiri (burung, UFO, katak, jet, hantu, roket, drone, bintang, pesawat luar angkasa, kristal, mecha, mobil terbang, kapal selam, jet tempur, kapal layar, balon udara, stealth, paus kosmik, naga, malaikat, kubus pixel, orb). Pemetaan skin → bentuk ada di `CF.SKIN_SHAPE` (`js/cosmetics.js`).
+- **Ekor & klik bertema:** jika item Tail/Tap yang dipakai adalah *Default*, efeknya otomatis mengikuti skin (roket → api, kapal → riak air, mobil → asap, malaikat → bulu, dst). Item Tail/Tap yang dibeli menimpa efek bawaan.
+- **Tema latar nyata:** Synthwave, Matrix, Solar, Deep Ocean, Cosmic Drift, Thunder Grid punya elemen latar sendiri (bukan hanya ganti warna).
+- **Preview toko:** semua kartu menampilkan animasi langsung; ketuk kartu untuk mencoba (efek klik, suara, semburan ekor).
+- **FATAL ERROR (skin_25, rarity Corrupted, 9.999 RCoin):** burung "bug" yang berkedip warna/transparan/hitam dengan teks kode error. Saat kalah: retakan layar, RGB split, noise, kedip negatif, dan layar "FATAL EXCEPTION" (ketuk untuk melewati). Saat pindah stage: kedip negatif, latar berkedip, kode error muncrat, retakan, getaran ringan.
+
+### Update database yang sudah berjalan
+Jalankan ulang `supabase/catalog_seed.sql` di SQL Editor (aman diulang) agar skin_25 dan item baru masuk ke tabel `catalog`.

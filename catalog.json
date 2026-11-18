@@ -594,5 +594,118 @@
     "price": 600,
     "rarity": "Epic",
     "free": false
+  },
+  {
+    "id": "skin_25",
+    "name": "FATAL ERROR",
+    "type": "skin",
+    "rarity": "Corrupted",
+    "price": 9999,
+    "free": false,
+    "colors": {
+      "bodyMain": "#1AFF6B",
+      "bodyShade": "#0A5A2A",
+      "bodyHighlight": "#E6FFE9",
+      "wingColor": "#FFFFFF",
+      "beakTop": "#FF003C",
+      "beakBottom": "#00E5FF",
+      "visorColor": "#FF00E6",
+      "trailColor": "#1AFF6BB3"
+    }
+  },
+  {
+    "id": "theme_ocean",
+    "name": "Deep Ocean",
+    "type": "theme",
+    "rarity": "Rare",
+    "price": 600,
+    "free": false,
+    "colors": [
+      "#021B3A",
+      "#0B6E8E",
+      "#7DF9FF"
+    ]
+  },
+  {
+    "id": "theme_space",
+    "name": "Cosmic Drift",
+    "type": "theme",
+    "rarity": "Epic",
+    "price": 950,
+    "free": false,
+    "colors": [
+      "#04020F",
+      "#1A1040",
+      "#A78BFA"
+    ]
+  },
+  {
+    "id": "theme_storm",
+    "name": "Thunder Grid",
+    "type": "theme",
+    "rarity": "Legendary",
+    "price": 1700,
+    "free": false,
+    "colors": [
+      "#090D1A",
+      "#2B3550",
+      "#9CC1FF"
+    ]
+  },
+  {
+    "id": "tap_shock",
+    "name": "Shockwave",
+    "type": "tap",
+    "rarity": "Rare",
+    "price": 500,
+    "free": false
+  },
+  {
+    "id": "tap_firework",
+    "name": "Firework",
+    "type": "tap",
+    "rarity": "Epic",
+    "price": 750,
+    "free": false
+  },
+  {
+    "id": "tail_bubble",
+    "name": "Deep Sea Bubbles",
+    "type": "tail",
+    "rarity": "Common",
+    "price": 220,
+    "free": false
+  },
+  {
+    "id": "tail_pixel",
+    "name": "Pixel Dust",
+    "type": "tail",
+    "rarity": "Rare",
+    "price": 500,
+    "free": false
+  },
+  {
+    "id": "tail_fire",
+    "name": "Hellfire Trail",
+    "type": "tail",
+    "rarity": "Epic",
+    "price": 900,
+    "free": false
+  },
+  {
+    "id": "sound_bubble",
+    "name": "Bubble Pop",
+    "type": "sound",
+    "rarity": "Common",
+    "price": 200,
+    "free": false
+  },
+  {
+    "id": "sound_laser",
+    "name": "Laser Zap",
+    "type": "sound",
+    "rarity": "Rare",
+    "price": 400,
+    "free": false
   }
 ]
