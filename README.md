@@ -5,6 +5,7 @@ Game HTML5 canvas + Supabase Auth (Google), PostgreSQL, RCoin shop, cosmetics, a
 ## Struktur
 - `index.html`: game entry point + online overlay
 - `js/game.js`: original game engine plus 24 bird skins and bridge
+- `js/settings.js`: menu Setting (grafik & audio), preset Potato/Low/Medium/High/Ultra/Custom/Auto, penyimpanan lokal, auto-turunkan kualitas saat FPS jelek
 - `js/cosmetics.js`: bentuk skin (UFO, jet, kapal, mobil terbang, dll), efek ekor & klik bertema, tema latar, suara, preview toko, dan efek glitch skin FATAL ERROR
 - `js/online.js`: Supabase auth, shop (dengan preview animasi), leaderboard, RCoin transactions
 - `css/online.css`: online UI
@@ -95,9 +96,9 @@ Menu **🛡 Admin** di bar atas hanya muncul jika email akun yang login terdafta
 Jalankan ulang `supabase/catalog_seed.sql` di SQL Editor (aman diulang) agar skin_25 dan item baru masuk ke tabel `catalog`.
 
 
-## Pengaturan performa & audio (V4)
-- Tombol **Setting** membuka menu grafik dan audio.
-- Preset Low/Medium/High/Ultra mengatur kualitas render, pixel ratio, latar, partikel, shader, dan efek glitch.
-- Custom menyediakan resolusi render, batas pixel ratio, toggle efek, SFX, musik sintetis, dan ambience prosedural (rain/storm/wind).
-- Pengaturan disimpan di localStorage perangkat masing-masing.
-- Untuk ponsel yang patah-patah, mulai dari **Low** atau **Medium**. Ultra membutuhkan perangkat/GPU yang lebih kuat.
+## Setting (⚙ di bar atas)
+**Grafik** — preset: *Auto* (default; menyesuaikan perangkat dan menurunkan kualitas sendiri jika FPS < ~42 selama 6 detik), *Potato* (60% resolusi, 30 FPS, tanpa glow/animasi), *Low*, *Medium*, *High* (tampilan bawaan), *Ultra* (shader bloom + scanline + vignette, debu cahaya, garis kecepatan, bintang jatuh, aura burung). Mengubah kontrol apa pun otomatis beralih ke *Custom*: resolusi render, batas FPS, glow, animasi latar/burung/menu, kepadatan partikel, cuaca visual, glitch layar penuh, getaran layar, shader, blur UI, garis CRT, dan penghitung FPS.
+
+**Audio** — volume utama, SFX (4 paket: Arcade/Lembut/8-Bit/Sci-Fi), lagu latar (Synthwave/Arcade/Chill/Dark, bisa juga di menu), suara suasana (hujan, badai + petir, angin, laut, antariksa, kota cyber; *Otomatis* mengikuti tema latar), dan kualitas audio (sample rate 22/32/44,1/48 kHz). Semua suara dibuat lewat WebAudio, tanpa file, sehingga "bitrate" diatur lewat sample rate.
+
+Pengaturan tersimpan di `localStorage` (`cf_settings_v1`).
