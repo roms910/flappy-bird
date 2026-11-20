@@ -117,7 +117,7 @@ async function showShop(type) {
 const RARITY_ID = r => String(r).toLowerCase();
 const DEFAULT_HINT = { tap: 'Mengikuti tema skin yang dipakai', tail: 'Mengikuti tema skin yang dipakai', sound: 'Klik untuk mendengar', theme: 'Langit asli stage' };
 function equippedSkinId() { return profile?.equipped_skin || localStorage.getItem('cf_equipped_skin') || 'skin_1'; }
-let pvRaf = 0, pvList = [], pvObs = null;
+let pvRaf = 0, pvList = [], pvObs = null, pvFrame = 0;
 function stopPreviews() { cancelAnimationFrame(pvRaf); pvRaf = 0; pvList = []; pvObs?.disconnect(); pvObs = null; }
 function startPreviews() {
   cancelAnimationFrame(pvRaf);
@@ -127,6 +127,8 @@ function startPreviews() {
   pvList.forEach(pv => pvObs.observe(pv.canvas));
   const loop = () => {
     if (modal.classList.contains('hidden') || !pvList.length) { stopPreviews(); return; }
+    pvFrame++;
+    if (window.CFSettings && window.CFSettings.eff.fps === 30 && pvFrame % 2) { pvRaf = requestAnimationFrame(loop); return; }
     for (const pv of pvList) {
       const cv = pv.canvas; if (!cv.isConnected || cv._vis === false) continue;
       const w = cv.clientWidth, h = cv.clientHeight; if (!w) continue;
@@ -210,7 +212,7 @@ function fxLoop() {
   fxRaf = fxList.length ? requestAnimationFrame(fxLoop) : 0;
 }
 $('gameCanvas').addEventListener('pointerdown', e => {
-  if (!window.CF) return;
+  if (!window.CF || (window.CFSettings && window.CFSettings.eff.bird === 0)) return;
   const skinId = window.CyberFlappyBridge?.getSkinId?.() || equippedSkinId(), tapId = localStorage.getItem('cf_equipped_tap') || 'tap_default';
   const sk = window.CF.skinColors(COLORS[skinId] || null);
   window.CF.tapSpawn(fxList, tapId, sk, window.CF.tailKind(skinId, 'tail_default'), e.clientX, e.clientY);
@@ -223,7 +225,7 @@ window.addEventListener('load', () => {
 
 // ---------- Audio toggle di top bar (tombol audio di canvas tertutup bar) ----------
 function syncAudioBtn() { const on = window.CyberFlappyBridge?.isAudioOn?.() ?? true; $('audio-toggle').firstChild.textContent = on ? '🔊 ' : '🔇 '; }
-$('audio-toggle').addEventListener('click', () => { window.CyberFlappyBridge?.toggleAudio?.(); window.dispatchEvent(new Event('cyberflappy:audio-toggle')); syncAudioBtn(); });
+$('audio-toggle').addEventListener('click', () => { window.CyberFlappyBridge?.toggleAudio?.(); syncAudioBtn(); });
 
 // ---------- Sembunyikan top bar saat bermain ----------
 setInterval(() => {

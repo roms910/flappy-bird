@@ -42,6 +42,14 @@
     // =========================================================================
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
+    const EFF = window.CFSettings.eff;   // pengaturan grafik (objek hidup; diperbarui di tempat)
+    // Glow neon dikontrol global: seluruh shadowBlur dikali EFF.glow, 0 = mati total (hemat GPU di HP lawas)
+    (function patchGlow() {
+        const proto = Object.getPrototypeOf(ctx), bd = Object.getOwnPropertyDescriptor(proto, 'shadowBlur'), cd = Object.getOwnPropertyDescriptor(proto, 'shadowColor');
+        if (!bd || !cd) return;
+        Object.defineProperty(ctx, 'shadowBlur', { configurable: true, get() { return bd.get.call(this); }, set(v) { bd.set.call(this, EFF.glow > 0 ? v * EFF.glow : 0); } });
+        Object.defineProperty(ctx, 'shadowColor', { configurable: true, get() { return cd.get.call(this); }, set(v) { cd.set.call(this, EFF.glow > 0 ? v : 'rgba(0,0,0,0)'); } });
+    })();
 
     // Logical internal resolution (9:16 classic mobile/arcade aspect ratio, scales cleanly)
     // Tinggi logis tetap (800), lebar logis mengikuti rasio layar user.
@@ -78,10 +86,9 @@
         }
 
         // Support high-DPI screens cleanly
-        const dpr = Math.min(window.devicePixelRatio || 1, CONFIG.runtime.pixelRatioLimit || 2);
-        const renderScale = Math.max(0.5, Math.min(1, Number(window.CF_SETTINGS?.resolution || 1)));
-        canvas.style.width = `${finalW * renderScale}px`;
-        canvas.style.height = `${finalH * renderScale}px`;
+        const dpr = Math.min(window.devicePixelRatio || 1, EFF.res || 2);
+        canvas.style.width = `${finalW}px`;
+        canvas.style.height = `${finalH}px`;
         canvas.width = Math.round(LOGICAL_WIDTH * dpr);
         canvas.height = Math.round(LOGICAL_HEIGHT * dpr);
         ctx.setTransform(canvas.width / LOGICAL_WIDTH, 0, 0, canvas.height / LOGICAL_HEIGHT, 0, 0);
@@ -98,6 +105,16 @@
 
     window.addEventListener('resize', resizeCanvas);
     window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 120));
+    window.addEventListener('cf:settings', () => { resizeCanvas(); audio.applySettings(); });
+    window.CFSettings.hooks.test = (what) => {
+        const S = window.CFSettings;
+        if (what === 'sfx' && !S.a.sfxOn) S.setA('sfxOn', true);
+        if (what === 'music' && !S.a.musicOn) S.setA('musicOn', true);
+        if (what === 'amb' && !S.a.ambOn) S.setA('ambOn', true);
+        if (S.a.mute && what !== 'stop') S.setA('mute', false);
+        audio.test(what);
+    };
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, () => audio.init(), { passive: true }));
     // resizeCanvas() pertama dipanggil setelah semua state dideklarasikan (lihat initCityscape di bawah)
 
     // =========================================================================
@@ -105,88 +122,106 @@
     // =========================================================================
     class CyberAudioEngine {
         constructor() {
-            this.ctx = null;
-            this.enabled = true;
-            this.bgmInterval = null;
-            this.bgmStep = 0;
-            this.isPlayingBgm = false;
+            this.ctx = null; this.rate = 0;
+            this.master = null; this.sfxBus = null; this.musicBus = null; this.ambBus = null; this.musicFade = null;
+            this.noiseW = null; this.noiseB = null;
+            this.mTimer = null; this.nextT = 0; this.step = 0; this.mStyle = null; this.isPlayingBgm = false;
+            this.amb = null; this.forceMusic = 0; this.forceAmb = 0;
         }
+        get A() { return window.CFSettings.a; }
+        get enabled() { return !this.A.mute; }
+        set enabled(v) { this.A.mute = !v; window.CFSettings.apply(); }
 
         init() {
+            const q = this.A.quality || 44100;
+            if (this.ctx && this.rate !== q) this.teardown();
             if (!this.ctx) {
                 const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                if (AudioCtx) {
-                    this.ctx = new AudioCtx();
-                }
+                if (!AudioCtx) return;
+                try { this.ctx = new AudioCtx({ sampleRate: q, latencyHint: 'interactive' }); }
+                catch (e) { try { this.ctx = new AudioCtx(); } catch (e2) { return; } }
+                this.rate = q;
+                this.buildBuses();
             }
-            if (this.ctx && this.ctx.state === 'suspended') {
-                this.ctx.resume();
-            }
+            if (this.ctx.state === 'suspended') this.ctx.resume();
         }
-
-        toggle() {
-            this.enabled = !this.enabled;
-            if (!this.enabled) {
-                this.stopBgm();
-            } else if (gameState === 'PLAYING' || gameState === 'READY') {
-                this.startBgm();
-            }
-            return this.enabled;
+        teardown() {
+            this.stopMusic(true); this.stopAmb(true);
+            try { this.ctx.close(); } catch (e) { }
+            this.ctx = null; this.noiseW = this.noiseB = null;
         }
+        buildBuses() {
+            const c = this.ctx;
+            this.master = c.createGain();
+            const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6;
+            this.master.connect(comp); comp.connect(c.destination);
+            this.sfxBus = c.createGain(); this.musicBus = c.createGain(); this.ambBus = c.createGain(); this.musicFade = c.createGain();
+            this.musicFade.connect(this.musicBus);
+            [this.sfxBus, this.musicBus, this.ambBus].forEach(b => b.connect(this.master));
+            this.applyVolumes();
+        }
+        applyVolumes() {
+            if (!this.ctx || !this.master) return;
+            const A = this.A, t = this.ctx.currentTime;
+            const set = (g, v) => { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(v, t, 0.03); };
+            set(this.master, A.mute ? 0 : A.master);
+            set(this.sfxBus, A.sfxOn ? A.sfxVol : 0);
+            set(this.musicBus, A.musicOn || performance.now() < this.forceMusic ? A.musicVol * 0.8 : 0);
+            set(this.ambBus, A.ambOn || performance.now() < this.forceAmb ? A.ambVol : 0);
+        }
+        applySettings() {
+            if (this.ctx && this.rate !== this.A.quality) this.init();
+            this.applyVolumes();
+        }
+        toggle() { this.enabled = !this.enabled; return this.enabled; }
+        detail() { let L = this.rate >= 44100 ? 3 : this.rate >= 32000 ? 2 : 1; if (window.CFSettings.eff.fps === 30) L = Math.min(L, 1); return L; }
 
-        playTone(freq, type, duration, vol = 0.15, slideFreq = null, delay = 0, channel = 'sfx') {
-            if (!this.enabled) return;
+        getNoise(brown) {
+            const key = brown ? 'noiseB' : 'noiseW';
+            if (this[key]) return this[key];
+            const c = this.ctx, n = Math.floor(c.sampleRate * 3), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+            let last = 0;
+            for (let i = 0; i < n; i++) { const w = Math.random() * 2 - 1; if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; }
+            this[key] = b; return b;
+        }
+        packTone(type, freq, dur, vol, slide) {
+            const p = this.A.sfxPack;
+            if (p === 'soft') return [(type === 'square' || type === 'sawtooth') ? 'triangle' : type, freq, dur * 1.15, vol * 0.8, slide];
+            if (p === '8bit') return ['square', Math.round(freq / 20) * 20, dur, vol * 0.85, slide ? Math.round(slide / 20) * 20 : null];
+            if (p === 'scifi') return [type === 'triangle' ? 'sine' : 'sawtooth', freq * 1.25, dur * 1.1, vol * 0.75, slide ? slide * 1.5 : freq * 0.55];
+            return [type, freq, dur, vol, slide];
+        }
+        playTone(freq, type, duration, vol = 0.15, slideFreq = null, delay = 0) {
+            if (!this.enabled || !this.A.sfxOn) return;
             this.init();
             if (!this.ctx) return;
-
+            [type, freq, duration, vol, slideFreq] = this.packTone(type, freq, duration, vol, slideFreq);
             const now = this.ctx.currentTime + delay;
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
-
             osc.type = type;
             osc.frequency.setValueAtTime(freq, now);
-            if (slideFreq) {
-                osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideFreq), now + duration);
-            }
-
+            if (slideFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideFreq), now + duration);
             gain.gain.setValueAtTime(vol, now);
             gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
-
             osc.connect(gain);
-            gain.connect(this.ctx.destination);
-
+            gain.connect(this.sfxBus);
             osc.start(now);
             osc.stop(now + duration);
         }
-
         playNoise(duration, vol = 0.2, filterFreq = 1000) {
-            if (!this.enabled) return;
+            if (!this.enabled || !this.A.sfxOn) return;
             this.init();
             if (!this.ctx) return;
-
-            const bufferSize = this.ctx.sampleRate * duration;
-            const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-            const data = buffer.getChannelData(0);
-            for (let i = 0; i < bufferSize; i++) {
-                data[i] = Math.random() * 2 - 1;
-            }
-
             const noise = this.ctx.createBufferSource();
-            noise.buffer = buffer;
-
+            noise.buffer = this.getNoise(false);
             const filter = this.ctx.createBiquadFilter();
-            filter.type = 'bandpass';
-            filter.frequency.value = filterFreq;
-
+            filter.type = 'bandpass'; filter.frequency.value = filterFreq;
             const gain = this.ctx.createGain();
             gain.gain.setValueAtTime(vol, this.ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
-
-            noise.connect(filter);
-            filter.connect(gain);
-            gain.connect(this.ctx.destination);
-
-            noise.start();
+            noise.connect(filter); filter.connect(gain); gain.connect(this.sfxBus);
+            noise.start(0, Math.random() * 1.5, duration);
         }
 
         // Authentic retro-cyber SFX
@@ -277,37 +312,205 @@
         sfxClick() {
             this.playTone(800, 'sine', 0.06, 0.12, 1200);
         }
-
-        startBgm() {
-            if (!this.enabled || this.isPlayingBgm) return;
-            this.init();
-            this.isPlayingBgm = true;
-            this.bgmStep = 0;
-
-            // Synthwave bassline loop
-            const bassNotes = [110, 110, 130.81, 146.83, 110, 110, 164.81, 146.83];
-            this.bgmInterval = setInterval(() => {
-                if (!this.enabled || (gameState !== 'PLAYING' && gameState !== 'READY')) return;
-                const freq = bassNotes[this.bgmStep % bassNotes.length];
-                // Subtle low synth pulse
-                this.playTone(freq, 'triangle', 0.18, 0.045, freq * 0.98, 0, 'music');
-                if (this.bgmStep % 4 === 0) {
-                    this.playTone(freq * 2, 'sine', 0.08, 0.025, null, 0, 'music');
-                }
-                this.bgmStep++;
-            }, 240);
+        sfxStageUp() {
+            [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.playTone(f, 'square', 0.12, 0.1, null, i * 0.07));
         }
+        sfxPreview() { this.sfxFlap(); setTimeout(() => this.sfxScore(), 220); setTimeout(() => this.sfxBuff(), 480); }
 
-        stopBgm() {
-            this.isPlayingBgm = false;
-            if (this.bgmInterval) {
-                clearInterval(this.bgmInterval);
-                this.bgmInterval = null;
+        // ---------------------------------------------------------------- MUSIK (sequencer 16-step, 4 gaya)
+        mf(n) { return 440 * Math.pow(2, (n - 69) / 12); }
+        note(f, type, t, dur, vol, lp) {
+            const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+            o.type = type; o.frequency.setValueAtTime(f, t);
+            g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            if (lp) { const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = lp; o.connect(fl); fl.connect(g); } else o.connect(g);
+            g.connect(this.musicFade); o.start(t); o.stop(t + dur + 0.05);
+        }
+        kick(t, v) {
+            const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+            o.type = 'sine'; o.frequency.setValueAtTime(135, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+            g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+            o.connect(g); g.connect(this.musicFade); o.start(t); o.stop(t + 0.2);
+        }
+        hat(t, v, hp = 7000, d = 0.04) {
+            const c = this.ctx, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+            s.buffer = this.getNoise(false); f.type = 'highpass'; f.frequency.value = hp;
+            g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+            s.connect(f); f.connect(g); g.connect(this.musicFade); s.start(t, Math.random() * 1.5, d + 0.02);
+        }
+        snare(t, v) {
+            const c = this.ctx, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+            s.buffer = this.getNoise(false); f.type = 'bandpass'; f.frequency.value = 1900;
+            g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+            s.connect(f); f.connect(g); g.connect(this.musicFade); s.start(t, Math.random() * 1.5, 0.15);
+            this.note(190, 'triangle', t, 0.08, v * 0.6);
+        }
+        stepMusic(step, t, st) {
+            const L = this.detail(), s = step & 15, bar = (step >> 4) % 4, root = st.prog[bar], mf = (n) => this.mf(n), ch = st.chords[bar];
+            const beat = 60 / st.bpm;
+            switch (this.mStyle) {
+                case 'arcade': {
+                    if (s % 4 === 0) this.kick(t, 0.5);
+                    if (s % 2 === 1 && L >= 2) this.hat(t, 0.05);
+                    if (s % 2 === 0) this.note(mf(root - 12), 'triangle', t, beat * 0.4, 0.15, 900);
+                    const m = st.lead[(bar % 2) * 16 + s];
+                    if (m != null && L >= 2) this.note(mf(root + 12 + m), 'square', t, beat * 0.22, 0.05, 3000);
+                    if (L >= 3 && s % 4 === 2) this.note(mf(root + 24 + ch[(s >> 2) % ch.length]), 'square', t, beat * 0.1, 0.022, 2500);
+                    break;
+                }
+                case 'chill': {
+                    if (s === 0) { this.kick(t, 0.22); if (L >= 2) ch.forEach(i => this.note(mf(root + 12 + i), 'sine', t, beat * 3.6, 0.05, 1400)); }
+                    if (s === 8 && L >= 1) this.kick(t, 0.14);
+                    if (s % 4 === 2) this.hat(t, 0.035, 9000, 0.03);
+                    if (L >= 2 && (s === 4 || s === 12)) this.snare(t, 0.05);
+                    if (L >= 3 && Math.random() < 0.3) this.note(mf(root + 24 + ch[(Math.random() * ch.length) | 0]), 'triangle', t, beat * 0.9, 0.04, 2200);
+                    if (s === 0 || s === 10) this.note(mf(root - 12), 'sine', t, beat * 1.4, 0.18);
+                    break;
+                }
+                case 'dark': {
+                    if (s === 0 || s === 8) this.kick(t, 0.55);
+                    if (s === 0 && L >= 2) this.note(mf(root - 12), 'sawtooth', t, beat * 3.8, 0.07, 380);
+                    if (s % 4 === 0) this.note(mf(root - 24), 'square', t, beat * 0.3, 0.12, 300);
+                    if (L >= 2 && s % 2 === 1) this.hat(t, 0.04, 8000);
+                    if (L >= 3 && Math.random() < 0.08) this.note(mf(root + 36 + ch[(Math.random() * ch.length) | 0]), 'sine', t, beat * 1.6, 0.03);
+                    break;
+                }
+                default: { // synthwave
+                    if (s % 4 === 0) this.kick(t, 0.5);
+                    if (s % 2 === 1) this.hat(t, 0.045);
+                    if (L >= 2 && (s === 4 || s === 12)) this.snare(t, 0.09);
+                    if (s % 2 === 0) this.note(mf(root - (s === 6 || s === 14 ? 0 : 12)), 'sawtooth', t, beat * 0.42, 0.11, 700);
+                    if (L >= 2) this.note(mf(root + 12 + ch[[0, 1, 2, 1][s & 3]]), 'square', t, beat * 0.2, 0.03, 2400);
+                    if (L >= 3 && s === 0) ch.forEach(i => this.note(mf(root + i), 'sawtooth', t, beat * 3.8, 0.028, 900));
+                    if (L >= 3 && bar >= 2 && (s === 0 || s === 6 || s === 10)) this.note(mf(root + 24 + ch[(s >> 1) % ch.length]), 'square', t, beat * 0.5, 0.035, 3200);
+                }
             }
+        }
+        startMusic() {
+            if (this.mTimer || !this.ctx) return;
+            this.mStyle = MUSIC[this.A.musicStyle] ? this.A.musicStyle : 'synthwave';
+            this.step = 0; this.nextT = this.ctx.currentTime + 0.08;
+            const t = this.ctx.currentTime;
+            this.musicFade.gain.cancelScheduledValues(t); this.musicFade.gain.setValueAtTime(0.0001, t); this.musicFade.gain.exponentialRampToValueAtTime(1, t + 0.6);
+            this.mTimer = setInterval(() => this.sched(), 50);
+            this.isPlayingBgm = true;
+        }
+        sched() {
+            if (!this.ctx || this.ctx.state !== 'running') return;
+            const st = MUSIC[this.mStyle], dur = 60 / st.bpm / 4;
+            if (this.nextT < this.ctx.currentTime - 0.3) this.nextT = this.ctx.currentTime + 0.05;
+            while (this.nextT < this.ctx.currentTime + 0.2) { this.stepMusic(this.step, this.nextT, st); this.nextT += dur; this.step++; }
+        }
+        stopMusic(hard) {
+            if (!this.mTimer) return;
+            clearInterval(this.mTimer); this.mTimer = null; this.isPlayingBgm = false;
+            if (this.ctx && !hard) { const t = this.ctx.currentTime; this.musicFade.gain.cancelScheduledValues(t); this.musicFade.gain.setTargetAtTime(0.0001, t, 0.12); }
+        }
+        startBgm() { }   // dikelola otomatis oleh tick()
+        stopBgm() { }
+
+        // ---------------------------------------------------------------- SUASANA (hujan, badai, angin, laut, antariksa, kota)
+        resolveAmb() {
+            let t = this.A.ambType;
+            if (t === 'auto') {
+                const th = (window.CF_EFFECTS && window.CF_EFFECTS.theme) || 'theme_neon';
+                t = { theme_storm: 'storm', theme_ocean: 'ocean', theme_space: 'space', theme_matrix: 'city', theme_synth: 'city', theme_solar: 'wind' }[th] || 'city';
+            }
+            return t === 'off' ? null : t;
+        }
+        startAmb(type) {
+            const c = this.ctx, out = c.createGain();
+            out.gain.setValueAtTime(0.0001, c.currentTime); out.gain.linearRampToValueAtTime(1, c.currentTime + 1.2); out.connect(this.ambBus);
+            const A = { type, out, srcs: [], timers: [] };
+            const src = (brown) => { const s = c.createBufferSource(); s.buffer = this.getNoise(brown); s.loop = true; A.srcs.push(s); return s; };
+            const filt = (t, f, q) => { const x = c.createBiquadFilter(); x.type = t; x.frequency.value = f; if (q) x.Q.value = q; return x; };
+            const gn = (v) => { const g = c.createGain(); g.gain.value = v; return g; };
+            const lfo = (rate, depth, param) => { const o = c.createOscillator(); o.frequency.value = rate; const g = gn(depth); o.connect(g); g.connect(param); A.srcs.push(o); };
+            const osc = (type2, f, v, dest) => { const o = c.createOscillator(); o.type = type2; o.frequency.value = f; const g = gn(v); o.connect(g); g.connect(dest); A.srcs.push(o); };
+            const every = (min, max, fn) => { const loop = () => { A.timers.push(setTimeout(() => { if (this.amb !== A) return; fn(); loop(); }, min + Math.random() * (max - min))); }; loop(); };
+            const ping = (f, d, v) => { const t = c.currentTime, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g); g.connect(out); o.start(t); o.stop(t + d + 0.05); };
+            const drop = () => { const s = c.createBufferSource(), f = filt('bandpass', 2500 + Math.random() * 4500, 2), g = gn(0.05 + Math.random() * 0.05), t = c.currentTime; s.buffer = this.getNoise(false); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03); s.connect(f); f.connect(g); g.connect(out); s.start(t, Math.random() * 2, 0.04); };
+            const thunder = () => {
+                const t = c.currentTime, s = c.createBufferSource(), f = filt('lowpass', 300), g = c.createGain();
+                s.buffer = this.getNoise(true); f.frequency.setValueAtTime(320, t); f.frequency.exponentialRampToValueAtTime(60, t + 2.6);
+                g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1.1, t + 0.08); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
+                s.connect(f); f.connect(g); g.connect(out); s.start(t, Math.random() * 1.5, 3);
+            };
+            switch (type) {
+                case 'rain': case 'storm': {
+                    const r = src(false), hp = filt('highpass', 1000), lp = filt('lowpass', 9000);
+                    r.connect(hp); hp.connect(lp); lp.connect(gn(type === 'storm' ? 0.42 : 0.3)).connect(out);
+                    if (this.detail() >= 2) every(120, 260, drop);
+                    if (type === 'storm') {
+                        const w = src(true), bp = filt('bandpass', 420, 0.6), wg = gn(0.35); w.connect(bp); bp.connect(wg); wg.connect(out); lfo(0.09, 0.25, wg.gain);
+                        every(5000, 13000, () => { if (window.CF && window.CF.weather) window.CF.weather.bolt(); setTimeout(() => { if (this.amb === A) thunder(); }, 350 + Math.random() * 600); });
+                    }
+                    break;
+                }
+                case 'wind': {
+                    const w = src(true), bp = filt('bandpass', 450, 0.7), wg = gn(0.6); w.connect(bp); bp.connect(wg); wg.connect(out); lfo(0.11, 0.35, wg.gain);
+                    const h = src(false), hb = filt('bandpass', 1400, 1.2), hg = gn(0.05); h.connect(hb); hb.connect(hg); hg.connect(out); lfo(0.07, 0.04, hg.gain);
+                    break;
+                }
+                case 'ocean': {
+                    const w = src(true), lp = filt('lowpass', 700), wg = gn(0.5); w.connect(lp); lp.connect(wg); wg.connect(out); lfo(0.1, 0.35, wg.gain);
+                    const h = src(false), hb = filt('bandpass', 3500, 0.8), hg = gn(0.04); h.connect(hb); hb.connect(hg); hg.connect(out); lfo(0.1, 0.03, hg.gain);
+                    break;
+                }
+                case 'space': {
+                    const lp = filt('lowpass', 500); lp.connect(out);
+                    osc('sine', 55, 0.18, lp); osc('sine', 55.5, 0.12, lp); osc('sine', 82.7, 0.09, lp);
+                    const w = src(true), wf = filt('lowpass', 260), wg = gn(0.08); w.connect(wf); wf.connect(wg); wg.connect(out);
+                    every(4000, 9000, () => ping(1200 + Math.random() * 2000, 1.8, 0.025));
+                    break;
+                }
+                default: { // city
+                    const lp = filt('lowpass', 160); lp.connect(out); osc('sawtooth', 50, 0.07, lp);
+                    const w = src(true), wf = filt('lowpass', 350), wg = gn(0.22); w.connect(wf); wf.connect(wg); wg.connect(out);
+                    every(3000, 8000, () => ping(700 + Math.random() * 400, 0.12, 0.02));
+                }
+            }
+            A.srcs.forEach(s => s.start());
+            this.amb = A;
+        }
+        stopAmb(hard) {
+            const A = this.amb; if (!A) return; this.amb = null;
+            A.timers.forEach(clearTimeout);
+            const c = this.ctx;
+            if (!c || hard) { try { A.srcs.forEach(s => s.stop()); } catch (e) { } return; }
+            const t = c.currentTime; A.out.gain.cancelScheduledValues(t); A.out.gain.setTargetAtTime(0.0001, t, 0.25);
+            setTimeout(() => { try { A.srcs.forEach(s => s.stop()); A.out.disconnect(); } catch (e) { } }, 1400);
+        }
+        // dipanggil tiap frame: musik & suasana mengikuti state game + pengaturan
+        tick(state) {
+            const c = this.ctx; if (!c || c.state !== 'running') return;
+            const A = this.A, now = performance.now(), on = this.enabled;
+            const inPlay = state === 'PLAYING' || state === 'READY', inMenu = state === 'MENU' || state === 'GAMEOVER' || state === 'VICTORY';
+            const wantMusic = on && ((A.musicOn && (inPlay || (A.musicMenu && inMenu))) || now < this.forceMusic);
+            if (wantMusic) { if (this.mTimer && this.mStyle !== A.musicStyle) this.stopMusic(true); if (!this.mTimer) this.startMusic(); } else this.stopMusic();
+            const at = this.resolveAmb(), wantAmb = on && at && (A.ambOn || now < this.forceAmb);
+            if (wantAmb) { if (!this.amb || this.amb.type !== at) { this.stopAmb(); this.startAmb(at); } } else this.stopAmb();
+        }
+        test(what) {
+            this.init(); if (!this.ctx) return;
+            const A = this.A;
+            if (what === 'sfx') this.sfxPreview();
+            else if (what === 'music') { this.forceMusic = performance.now() + 6000; this.stopMusic(true); this.applyVolumes(); }
+            else if (what === 'amb') { this.forceAmb = performance.now() + 6000; this.applyVolumes(); }
+            else if (what === 'stop') { this.forceMusic = 0; this.forceAmb = 0; }
         }
     }
 
+    const MUSIC = {
+        synthwave: { bpm: 100, prog: [45, 41, 48, 43], chords: [[0, 3, 7], [0, 4, 7], [0, 4, 7], [0, 4, 7]] },
+        arcade: { bpm: 140, prog: [48, 45, 53, 43], chords: [[0, 4, 7], [0, 3, 7], [0, 4, 7], [0, 4, 7]],
+            lead: [0, null, 4, null, 7, null, 4, null, 9, null, 7, null, 4, 2, 0, null, 7, null, 7, null, 9, null, 12, null, 9, null, 7, null, 4, null, 2, null] },
+        chill: { bpm: 72, prog: [50, 47, 43, 45], chords: [[0, 4, 7, 11], [0, 3, 7, 10], [0, 4, 7, 11], [0, 4, 7, 10]] },
+        dark: { bpm: 84, prog: [38, 38, 41, 36], chords: [[0, 3, 7], [0, 3, 7], [0, 4, 7], [0, 3, 6]] }
+    };
+
     const audio = new CyberAudioEngine();
+
 
     // =========================================================================
     // 3. GAME CONSTANTS, STAGE THEMES & SKINS
@@ -977,6 +1180,7 @@
 
     function drawUiFx() {
         const buttons = activeUiButtons();
+        if (!EFF.ui) { canvas.style.cursor = (activeUiButtons().some(r => isInside(uiFx.pointer, r)) || gameState === 'READY' || gameState === 'PLAYING') ? 'pointer' : 'default'; return; }
         const hovered = buttons.find(r => isInside(uiFx.pointer, r));
         canvas.style.cursor = (hovered || gameState === 'READY' || gameState === 'PLAYING') ? 'pointer' : 'default';
 
@@ -1034,15 +1238,15 @@
     const tailKindNow = () => CFx.tailKind(curSkin().id, window.CF_EFFECTS && window.CF_EFFECTS.tail);
     const audioCtxNow = () => (audio.enabled ? audio.ctx : null);
     function onSkinDeath() {
-        if (!curSkin().glitch) return;
+        if (!curSkin().glitch || EFF.glitch === 0) return;
         CFx.glitch.startDeath(LOGICAL_WIDTH, LOGICAL_HEIGHT, bird.x, bird.y);
         triggerScreenShake(22, 70);
-        CFx.glitch.sound(audioCtxNow(), 'death');
+        CFx.glitch.sound(audioCtxNow(), 'death', audio.sfxBus);
     }
     function updateUiFx() {
         CFx.updateParts(tailParts);
         CFx.glitch.update();
-        if (curSkin().glitch && frameCount % 6 === 0 && gameState !== 'GAMEOVER' && gameState !== 'VICTORY') CFx.glitch.spawnText(bird.x + 8, bird.y - 6);
+        if (curSkin().glitch && EFF.bird > 0 && frameCount % 6 === 0 && gameState !== 'GAMEOVER' && gameState !== 'VICTORY') CFx.glitch.spawnText(bird.x + 8, bird.y - 6);
         uiFx.stateFrames++;
         if (uiFx.enterT < 1) uiFx.enterT = Math.min(1, uiFx.enterT + 0.07);
         if (uiFx.pressT > 0) uiFx.pressT = Math.max(0, uiFx.pressT - 0.09);
@@ -1061,6 +1265,8 @@
         playClick() { audio.init(); audio.sfxClick(); },
         playTap() { audio.init(); audio.sfxFlap(); },
         getSkinId() { return curSkin().id; },
+        audioTest(what) { audio.test(what); },
+        audioInfo() { return { state: audio.ctx && audio.ctx.state, rate: audio.rate, music: audio.isPlayingBgm, style: audio.mStyle, amb: audio.amb && audio.amb.type }; },
         toggleAudio() { audio.init(); audio.toggle(); return audio.enabled; },
         isAudioOn() { return audio.enabled; }
     };
@@ -1186,10 +1392,11 @@
             stageBannerTimer = 150;
             screenFlashColor = theme.accentNeon;
             screenFlashAlpha = 0.25;
-            if (curSkin().glitch) {
+            audio.sfxStageUp();
+            if (curSkin().glitch && EFF.glitch > 0) {
                 CFx.glitch.startStage(LOGICAL_WIDTH, LOGICAL_HEIGHT);
                 triggerScreenShake(7, 36);
-                CFx.glitch.sound(audioCtxNow(), 'stage');
+                CFx.glitch.sound(audioCtxNow(), 'stage', audio.sfxBus);
             }
         }
     }
@@ -1200,6 +1407,7 @@
     }
 
     function triggerScreenShake(intensity = 10, duration = 18) {
+        if (!EFF.shake) return;
         shakeIntensity = intensity;
         shakeTimer = duration;
     }
@@ -1986,7 +2194,9 @@
         CFx.glitch.bgFlicker(ctx, LOGICAL_WIDTH, PLAYABLE_HEIGHT);
 
         // 2. Parallax Skyline (Far & Near Buildings + Neon Holograms)
+        if (EFF.extras) CFx.ultra.shooting(ctx, LOGICAL_WIDTH, PLAYABLE_HEIGHT, frameCount);
         drawCityscape(theme);
+        if (EFF.extras) CFx.ultra.motes(ctx, LOGICAL_WIDTH, PLAYABLE_HEIGHT, frameCount);
 
         // 3. Draw Collectibles (Buffs & Gravity Traps)
         drawCollectibles();
@@ -2002,6 +2212,7 @@
         drawCyberFloor(theme);
 
         // 7. Draw Bird Trail & Iconic Cyber Flappy Bird
+        if (EFF.extras && (gameState === 'PLAYING' || gameState === 'READY')) CFx.ultra.aura(ctx, bird.x, bird.y, frameCount);
         drawBirdTrail();
         if (curSkin().glitch) {
             CFx.glitch.drawBird(ctx, (b2, v) => { b2.save(); b2.translate(-bird.x, -bird.y); drawBird(v, 0, 0, b2); b2.restore(); }, curSkin(), frameCount, bird.x, bird.y);
@@ -2009,6 +2220,8 @@
         } else {
             drawBird();
         }
+        if (EFF.extras && gameState === 'PLAYING') CFx.ultra.speed(ctx, LOGICAL_WIDTH, PLAYABLE_HEIGHT, frameCount, 1);
+        if (EFF.weather) { const wType = audio.resolveAmb(); if (wType) CFx.weather.draw(ctx, LOGICAL_WIDTH, LOGICAL_HEIGHT, frameCount, wType, EFF); }
         drawAnswerPreview();
 
         // 8. Draw Particles & Floating Texts
@@ -2031,7 +2244,7 @@
         }
         ctx.save();
         ctx.translate(UI_OFFSET, 0);
-        if (gameState === 'MENU' || gameState === 'GAMEOVER' || gameState === 'VICTORY' || gameState === 'READY') {
+        if (EFF.ui && (gameState === 'MENU' || gameState === 'GAMEOVER' || gameState === 'VICTORY' || gameState === 'READY')) {
             // pop-in: fade + sedikit zoom dari tengah layar
             const e = Math.min(1, easeOutBack(Math.min(1, uiFx.enterT)));
             ctx.globalAlpha = Math.min(1, uiFx.enterT * 1.8);
@@ -2060,17 +2273,18 @@
         }
 
         ctx.restore();
+        CFx.shader.apply(ctx, canvas, frameCount, EFF);
         CFx.glitch.post(ctx, canvas, LOGICAL_WIDTH, LOGICAL_HEIGHT, frameCount);
     }
 
     function drawCyberSunAndStars(theme) {
         // Twinkling digital stars
         ctx.fillStyle = '#FFFFFF';
-        const starCount = Math.ceil(24 * LOGICAL_WIDTH / 450);
+        const starCount = EFF.bg === 0 ? 0 : Math.ceil((EFF.bg === 1 ? 12 : 24) * LOGICAL_WIDTH / 450);
         for (let i = 0; i < starCount; i++) {
             const sx = (i * 73 + frameCount * 0.05) % LOGICAL_WIDTH;
             const sy = (i * 41) % (PLAYABLE_HEIGHT * 0.45);
-            const alpha = 0.3 + 0.5 * Math.sin(frameCount * 0.05 + i);
+            const alpha = EFF.bg === 1 ? 0.55 : 0.3 + 0.5 * Math.sin(frameCount * 0.05 + i);
             ctx.globalAlpha = alpha;
             ctx.fillRect(sx, sy, 2, 2);
         }
@@ -2124,8 +2338,8 @@
             ctx.globalAlpha = 1;
 
             // Lit windows
-            for (const win of b.litWindows) {
-                if (win.blink && Math.sin(frameCount * 0.08 + win.r) < -0.5) continue;
+            if (EFF.bg > 0) for (const win of b.litWindows) {
+                if (EFF.bg === 2 && win.blink && Math.sin(frameCount * 0.08 + win.r) < -0.5) continue;
                 ctx.fillStyle = theme.accentNeon;
                 ctx.globalAlpha = 0.35;
                 ctx.fillRect(b.x + 8 + win.c * 13, topY + 10 + win.r * 17, 6, 9);
@@ -2136,8 +2350,8 @@
         // Floating Neon Hologram Signs
         ctx.font = 'bold 11px "Orbitron", sans-serif';
         ctx.textAlign = 'center';
-        for (const h of holoSigns) {
-            const floatY = h.y + Math.sin(frameCount * 0.05 + h.x * 0.02) * 4;
+        if (EFF.bg > 0) for (const h of holoSigns) {
+            const floatY = h.y + (EFF.bg === 2 ? Math.sin(frameCount * 0.05 + h.x * 0.02) * 4 : 0);
             ctx.strokeStyle = h.color;
             ctx.lineWidth = 1;
             ctx.strokeRect(h.x - 24, floatY - 12, 48, 16);
@@ -2831,6 +3045,7 @@
     }
 
     function drawBirdTrail() {
+        if (EFF.bird === 0) return;
         const skin = curSkin(), kind = tailKindNow();
         if (kind !== 'dot') { CFx.drawParts(ctx, tailParts); return; }
         for (let i = 0; i < bird.trail.length; i++) {
@@ -2985,7 +3200,9 @@
     }
 
     function drawParticlesAndTexts() {
-        for (const p of particles) {
+        const pStep = EFF.bird === 0 ? 0 : Math.max(1, Math.round(1 / Math.max(0.1, EFF.density * (EFF.bird === 1 ? 0.7 : 1))));
+        for (let pi = 0; pi < particles.length && pStep; pi += pStep) {
+            const p = particles[pi];
             ctx.fillStyle = p.color;
             ctx.globalAlpha = Math.max(0, p.alpha);
             ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
@@ -3649,7 +3866,7 @@
         const fxPt = getLogicalCoords(e.clientX, e.clientY);
         fxPt.x -= UI_OFFSET;
         uiFx.pointer = fxPt;
-        if (gameState !== 'PLAYING' && gameState !== 'READY') {
+        if (EFF.ui && gameState !== 'PLAYING' && gameState !== 'READY') {
             uiFx.pressPt = fxPt;
             uiFx.pressT = 1;
             uiFx.ripples.push({ x: fxPt.x, y: fxPt.y, t: 0, color: activeUiButtons().some(r => isInside(fxPt, r)) ? '#FFE600' : '#00F5D4' });
@@ -3703,6 +3920,7 @@
     });
 
     let lastOnlineReportState = '';
+    let lastDrawTime = 0;
     function gameLoop(timestamp) {
         if (gameState === 'GAMEOVER' && lastOnlineReportState !== 'GAMEOVER') {
             lastOnlineReportState = 'GAMEOVER';
@@ -3715,7 +3933,8 @@
             return;
         }
         if (!lastFrameTime) lastFrameTime = timestamp;
-        const delta = Math.min(MAX_FRAME_DELTA, Math.max(0, timestamp - lastFrameTime));
+        const rawDelta = timestamp - lastFrameTime;
+        const delta = Math.min(MAX_FRAME_DELTA, Math.max(0, rawDelta));
         lastFrameTime = timestamp;
         accumulator += delta;
         let steps = 0;
@@ -3726,7 +3945,12 @@
         }
         // Drop excessive backlog instead of entering a spiral of death on slow phones.
         if (steps === MAX_CATCH_UP_STEPS && accumulator >= STEP_MS) accumulator = 0;
-        draw();
+        // Batas FPS render: logika tetap 60 langkah/detik, hanya gambar yang dijarangkan
+        const minDt = EFF.fps ? 1000 / EFF.fps - 1.5 : 0;
+        let drew = false;
+        if (!minDt || timestamp - lastDrawTime >= minDt) { draw(); lastDrawTime = timestamp; drew = true; }
+        window.CFSettings.frame(rawDelta, drew);
+        audio.tick(gameState);
         requestAnimationFrame(gameLoop);
     }
 
