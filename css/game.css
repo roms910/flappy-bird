@@ -77,6 +77,3 @@ body { overscroll-behavior: none; }
 canvas{position:relative;z-index:1;border-radius:6px;transition:box-shadow .4s}
 canvas:hover{box-shadow:0 0 50px rgba(0,243,255,.4),0 0 100px rgba(255,0,128,.22)}
 @media(prefers-reduced-motion:reduce){#game-wrapper::before{animation:none}}
-
-/* Settings UI responsive */
-#settings-panel input[type=checkbox]{accent-color:#00f5d4;width:18px;height:18px} #settings-panel .sp-card{scrollbar-color:#1c7180 #08101e}
